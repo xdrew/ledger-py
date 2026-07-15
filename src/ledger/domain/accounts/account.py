@@ -11,6 +11,7 @@ Invariants (enforced on the command side, never in ``_apply``):
 
 from enum import StrEnum
 from typing import Self
+from uuid import UUID
 
 from ledger.domain.accounts.events import (
     AccountClosed,
@@ -52,6 +53,9 @@ class Account(AggregateRoot[AccountEvent]):
         self.status: AccountStatus = AccountStatus.CLOSED
         self.available: Money = Money.zero(_UNSET_CURRENCY)
         self.reserved: Money = Money.zero(_UNSET_CURRENCY)
+        # Idempotency keys of balance-moving operations already applied. Lets a
+        # replayed saga step (Temporal activity retry) become a safe no-op.
+        self._applied_ops: set[UUID] = set()
 
     # --- construction ---
 
@@ -68,29 +72,37 @@ class Account(AggregateRoot[AccountEvent]):
         self._assert_operational(amount)
         self._record(FundsDeposited(amount=amount))
 
-    def hold(self, amount: Money) -> None:
+    def hold(self, amount: Money, operation_id: UUID) -> None:
         self._assert_operational(amount)
+        if operation_id in self._applied_ops:
+            return
         if self.available < amount:
             raise InsufficientFunds(f"hold {amount} exceeds available {self.available}")
-        self._record(FundsHeld(amount=amount))
+        self._record(FundsHeld(amount=amount, operation_id=operation_id))
 
-    def release_hold(self, amount: Money) -> None:
+    def release_hold(self, amount: Money, operation_id: UUID) -> None:
         self._assert_operational(amount)
+        if operation_id in self._applied_ops:
+            return
         if self.reserved < amount:
             raise InsufficientFunds(f"release {amount} exceeds reserved {self.reserved}")
-        self._record(HoldReleased(amount=amount))
+        self._record(HoldReleased(amount=amount, operation_id=operation_id))
 
-    def debit(self, amount: Money) -> None:
+    def debit(self, amount: Money, operation_id: UUID) -> None:
         """Finalize an outflow: draw from the held (reserved) bucket."""
         self._assert_operational(amount)
+        if operation_id in self._applied_ops:
+            return
         if self.reserved < amount:
             raise InsufficientFunds(f"debit {amount} exceeds reserved {self.reserved}")
-        self._record(AccountDebited(amount=amount))
+        self._record(AccountDebited(amount=amount, operation_id=operation_id))
 
-    def credit(self, amount: Money) -> None:
+    def credit(self, amount: Money, operation_id: UUID) -> None:
         """Receive an inflow into the available bucket."""
         self._assert_operational(amount)
-        self._record(AccountCredited(amount=amount))
+        if operation_id in self._applied_ops:
+            return
+        self._record(AccountCredited(amount=amount, operation_id=operation_id))
 
     def freeze(self) -> None:
         if self.status is not AccountStatus.OPEN:
@@ -126,15 +138,19 @@ class Account(AggregateRoot[AccountEvent]):
                 self.reserved = Money.zero(currency)
             case FundsDeposited(amount=amount):
                 self.available = self.available.add(amount)
-            case FundsHeld(amount=amount):
+            case FundsHeld(amount=amount, operation_id=operation_id):
+                self._applied_ops.add(operation_id)
                 self.available = self.available.subtract(amount)
                 self.reserved = self.reserved.add(amount)
-            case HoldReleased(amount=amount):
+            case HoldReleased(amount=amount, operation_id=operation_id):
+                self._applied_ops.add(operation_id)
                 self.reserved = self.reserved.subtract(amount)
                 self.available = self.available.add(amount)
-            case AccountDebited(amount=amount):
+            case AccountDebited(amount=amount, operation_id=operation_id):
+                self._applied_ops.add(operation_id)
                 self.reserved = self.reserved.subtract(amount)
-            case AccountCredited(amount=amount):
+            case AccountCredited(amount=amount, operation_id=operation_id):
+                self._applied_ops.add(operation_id)
                 self.available = self.available.add(amount)
             case AccountFrozen():
                 self.status = AccountStatus.FROZEN

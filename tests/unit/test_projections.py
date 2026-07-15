@@ -2,7 +2,7 @@
 
 from ledger.domain.accounts.account import Account, AccountStatus
 from ledger.domain.accounts.events import ACCOUNT_STREAM
-from ledger.domain.shared.identifiers import new_account_id
+from ledger.domain.shared.identifiers import new_account_id, new_event_id
 from ledger.domain.shared.money import Money
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
@@ -27,8 +27,8 @@ async def _seed_account() -> tuple[InMemoryEventStore, object]:
     account_id = new_account_id()
     account = Account.open(account_id, "USD")
     account.deposit(usd(1000))
-    account.hold(usd(400))
-    account.debit(usd(400))
+    account.hold(usd(400), new_event_id())
+    account.debit(usd(400), new_event_id())
     await repo.save(account_id, account)
     return store, account_id
 
@@ -83,8 +83,8 @@ class TestProjections:
         a_id = new_account_id()
         account_a = Account.open(a_id, "USD")
         account_a.deposit(usd(1000))
-        account_a.hold(usd(400))
-        account_a.release_hold(usd(400))
+        account_a.hold(usd(400), new_event_id())
+        account_a.release_hold(usd(400), new_event_id())
         account_a.freeze()
         await repo.save(a_id, account_a)
         # Account B: opened, then closed while empty.

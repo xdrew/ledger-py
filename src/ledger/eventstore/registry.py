@@ -6,11 +6,16 @@ add events (transfers arrive in the Temporal phase).
 
 from ledger.domain.accounts.events import ACCOUNT_EVENT_TYPES
 from ledger.domain.ledger.events import JOURNAL_EVENT_TYPES
+from ledger.domain.transfers.events import TRANSFER_EVENT_TYPES
 from ledger.eventstore.serialization import EventRegistry
 
 
 def build_event_registry() -> EventRegistry:
     registry = EventRegistry()
-    for event_cls in (*ACCOUNT_EVENT_TYPES, *JOURNAL_EVENT_TYPES):
+    for event_cls in (
+        *ACCOUNT_EVENT_TYPES,
+        *JOURNAL_EVENT_TYPES,
+        *TRANSFER_EVENT_TYPES,
+    ):
         registry.register(event_cls)
     return registry

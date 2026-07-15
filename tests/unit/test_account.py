@@ -1,5 +1,7 @@
 """Unit tests for the Account aggregate and its persistence round-trip."""
 
+from uuid import UUID
+
 import pytest
 
 from ledger.domain.accounts.account import Account, AccountStatus
@@ -11,7 +13,7 @@ from ledger.domain.shared.errors import (
     InsufficientFunds,
     InvalidTransition,
 )
-from ledger.domain.shared.identifiers import new_account_id
+from ledger.domain.shared.identifiers import new_account_id, new_event_id
 from ledger.domain.shared.money import Money
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
@@ -20,6 +22,10 @@ from ledger.eventstore.repository import EventSourcedRepository
 
 def usd(amount: int) -> Money:
     return Money(amount=amount, currency="USD")
+
+
+def op() -> UUID:
+    return new_event_id()
 
 
 class TestAccountCommands:
@@ -37,7 +43,7 @@ class TestAccountCommands:
     def test_hold_moves_available_to_reserved(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
-        account.hold(usd(400))
+        account.hold(usd(400), op())
         assert account.available == usd(600)
         assert account.reserved == usd(400)
 
@@ -45,42 +51,53 @@ class TestAccountCommands:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(100))
         with pytest.raises(InsufficientFunds):
-            account.hold(usd(101))
+            account.hold(usd(101), op())
 
     def test_release_hold_returns_to_available(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
-        account.hold(usd(400))
-        account.release_hold(usd(400))
+        account.hold(usd(400), op())
+        account.release_hold(usd(400), op())
         assert account.available == usd(1000)
         assert account.reserved == usd(0)
 
     def test_debit_draws_from_reserved(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
-        account.hold(usd(400))
-        account.debit(usd(400))  # settle the hold
+        account.hold(usd(400), op())
+        account.debit(usd(400), op())  # settle the hold
         assert account.available == usd(600)
         assert account.reserved == usd(0)
 
     def test_debit_beyond_reserved_rejected(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
-        account.hold(usd(100))
+        account.hold(usd(100), op())
         with pytest.raises(InsufficientFunds):
-            account.debit(usd(200))
+            account.debit(usd(200), op())
 
     def test_release_beyond_reserved_rejected(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
-        account.hold(usd(100))
+        account.hold(usd(100), op())
         with pytest.raises(InsufficientFunds):
-            account.release_hold(usd(200))
+            account.release_hold(usd(200), op())
 
     def test_credit_increases_available(self) -> None:
         account = Account.open(new_account_id(), "USD")
-        account.credit(usd(500))
+        account.credit(usd(500), op())
         assert account.available == usd(500)
+
+    def test_repeated_operation_id_is_idempotent(self) -> None:
+        # A replayed saga step (same operation_id) must not double-apply.
+        account = Account.open(new_account_id(), "USD")
+        account.deposit(usd(1000))
+        hold_op = op()
+        account.hold(usd(400), hold_op)
+        account.hold(usd(400), hold_op)  # retry — no-op
+        account.hold(usd(400), hold_op)  # retry — no-op
+        assert account.available == usd(600)
+        assert account.reserved == usd(400)
 
     def test_currency_mismatch_rejected(self) -> None:
         account = Account.open(new_account_id(), "USD")
@@ -127,7 +144,7 @@ class TestAccountPersistence:
         account_id = new_account_id()
         account = Account.open(account_id, "USD")
         account.deposit(usd(1000))
-        account.hold(usd(400))
+        account.hold(usd(400), op())
         await repo.save(account_id, account)
 
         reloaded = await repo.load(account_id)

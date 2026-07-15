@@ -7,7 +7,7 @@ from fastapi import Request
 from ledger.api.gateway import TemporalTransferGateway, TransferGateway
 from ledger.api.idempotency import IdempotencyStore
 from ledger.config.settings import Settings, get_settings
-from ledger.eventstore.factory import create_event_store
+from ledger.eventstore.factory import open_event_store
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.store import EventStore
 from ledger.temporal.client import connect
@@ -25,7 +25,7 @@ class AppContext:
 
 async def build_runtime_context(settings: Settings) -> AppContext:
     registry = build_event_registry()
-    store = create_event_store(settings, registry)
+    store = await open_event_store(settings, registry)
     repositories = build_repositories(store, registry)
     client = await connect(settings)
     gateway = TemporalTransferGateway(client, settings.temporal_task_queue)

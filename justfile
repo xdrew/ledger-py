@@ -23,9 +23,9 @@ down:
 nuke:
     docker compose down -v
 
-# Apply database migrations against LEDGER_DATABASE_URL.
+# Apply the event-store schema to LEDGER_DATABASE_URL.
 migrate:
-    uv run yoyo apply --batch --database "$LEDGER_DATABASE_URL" ./migrations
+    uv run ledger-migrate
 
 # Run the Temporal worker (workflows + activities).
 worker:

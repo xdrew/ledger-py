@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     api_key: str = Field(default="dev-local-key", repr=False)
 
     # --- Observability ---
-    otel_exporter_otlp_endpoint: str | None = "http://localhost:4317"
+    # None by default so tests / local runs need no collector; set in deploy.
+    otel_exporter_otlp_endpoint: str | None = None
     service_name: str = "ledger-core"
     log_level: str = "INFO"
 

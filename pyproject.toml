@@ -19,7 +19,6 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.30",
     "opentelemetry-instrumentation-fastapi>=0.51b0",
     "opentelemetry-instrumentation-asyncpg>=0.51b0",
-    "yoyo-migrations>=9.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +37,7 @@ dev = [
 [project.scripts]
 ledger-worker = "ledger.temporal.worker:main"
 ledger-api = "ledger.api.main:main"
+ledger-migrate = "ledger.eventstore.migrate:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -45,6 +45,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ledger"]
+artifacts = ["**/*.html"]
 
 [tool.uv]
 package = true

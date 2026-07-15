@@ -63,6 +63,17 @@ class TestAuth:
     def test_healthz_is_open(self, client: TestClient) -> None:
         assert client.get("/healthz").status_code == 200
 
+    def test_readyz_reports_ready(self, client: TestClient) -> None:
+        response = client.get("/readyz")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ready"
+
+    def test_playground_served_at_root(self, client: TestClient) -> None:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "ledger-core" in response.text
+
 
 class TestAccounts:
     def test_open_deposit_and_read(self, client: TestClient) -> None:

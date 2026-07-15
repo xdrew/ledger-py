@@ -46,3 +46,7 @@ class UnknownAccount(DomainError):
 
 class AccountNotEmpty(DomainError):
     code = "account_not_empty"
+
+
+class NotFound(DomainError):
+    code = "not_found"

@@ -8,8 +8,10 @@ state. Generic over the concrete event union via PEP 695 syntax.
 
 from collections.abc import Iterable
 
+from ledger.domain.shared.events import DomainEvent
 
-class AggregateRoot[E]:
+
+class AggregateRoot[E: DomainEvent]:
     """Base for event-sourced aggregates. ``E`` is the event union type."""
 
     def __init__(self) -> None:

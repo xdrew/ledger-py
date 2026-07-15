@@ -38,3 +38,11 @@ class InvalidTransition(DomainError):
 
 class UnbalancedEntry(DomainError):
     code = "unbalanced_entry"
+
+
+class UnknownAccount(DomainError):
+    code = "unknown_account"
+
+
+class AccountNotEmpty(DomainError):
+    code = "account_not_empty"

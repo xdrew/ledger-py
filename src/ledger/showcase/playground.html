@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ledger-core · playground</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cg stroke='white' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M9 11h14M9 16h14M9 21h9'/%3E%3C/g%3E%3C/svg%3E"
+    />
     <style>
       :root {
         --bg: #f7f8fa;
@@ -15,6 +19,8 @@
         --ok: #1f9d55;
         --warn: #b7791f;
         --err: #d64545;
+        --rail: #d7dce3;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
       body {
@@ -71,6 +77,7 @@
       }
       button.ghost { background: #eef2f9; color: var(--accent); }
       button:active { transform: translateY(1px); }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       pre {
         margin: 12px 0 0;
         padding: 12px;
@@ -83,17 +90,88 @@
       }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
       .s-completed { background: #e3f5ea; color: var(--ok); }
+      .s-reconciled { background: #fdf1dd; color: var(--warn); }
       .s-failed { background: #fbe6e6; color: var(--err); }
       .s-needs_reconciliation { background: #fdf1dd; color: var(--warn); }
       .s-initiated, .s-held, .s-posted { background: #e8eefc; color: var(--accent); }
       .muted { color: var(--muted); font-size: 12px; }
       code { background: #eef2f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+      .mono { font-family: var(--mono); font-size: 12px; }
+
+      /* --- saga rail (the signature) --- */
+      .saga-head { display: flex; align-items: center; gap: 10px; min-height: 22px; }
+      .saga-head .mono { color: var(--muted); }
+      .saga-empty { color: var(--muted); font-size: 13px; }
+
+      .stepper { display: flex; margin: 22px 2px 4px; }
+      .step { flex: 1; position: relative; text-align: center; }
+      .step::before {
+        content: "";
+        position: absolute;
+        top: 9px;
+        right: 50%;
+        width: 100%;
+        height: 2px;
+        background: var(--rail);
+      }
+      .step:first-child::before { display: none; }
+      .step.reached::before { background: var(--accent); }
+      .step.branch-warn.reached::before { background: var(--warn); }
+      .step.branch-err.reached::before { background: var(--err); }
+      .dot {
+        position: relative;
+        z-index: 1;
+        display: block;
+        width: 20px;
+        height: 20px;
+        margin: 0 auto 8px;
+        border-radius: 999px;
+        background: #fff;
+        border: 2px solid var(--rail);
+      }
+      .step.done .dot { background: var(--accent); border-color: var(--accent); }
+      .step.current .dot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(47,111,237,.16); }
+      .step.branch-warn .dot { background: var(--warn); border-color: var(--warn); }
+      .step.branch-warn.current .dot { box-shadow: 0 0 0 4px rgba(183,121,31,.18); }
+      .step.branch-err .dot { background: var(--err); border-color: var(--err); }
+      .lbl { font-size: 12px; color: var(--muted); }
+      .step.done .lbl, .step.current .lbl { color: var(--ink); font-weight: 600; }
+      .step.branch-warn .lbl { color: var(--warn); font-weight: 600; }
+      .step.branch-err .lbl { color: var(--err); font-weight: 600; }
+
+      /* --- resolve controls --- */
+      .resolve {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border: 1px solid #f0dcb4;
+        background: #fdf6e8;
+        border-radius: 9px;
+      }
+      .resolve p { margin: 0 0 4px; font-size: 13px; color: #7c5a12; }
+      .resolve .acts { display: flex; gap: 10px; }
+      .resolve .acts button { margin-top: 6px; }
+
+      /* --- event timeline --- */
+      .timeline { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+      .timeline h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+      .ev { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; }
+      .ev::before { content: ""; flex: 0 0 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: var(--accent); }
+      .ev.warn::before { background: var(--warn); }
+      .ev.ok::before { background: var(--ok); }
+      .ev.err::before { background: var(--err); }
+      .ev .type { font-weight: 600; }
+      .ev .meta { margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+
+      @media (max-width: 720px) {
+        main { grid-template-columns: 1fr; }
+        .lbl { font-size: 11px; }
+      }
     </style>
   </head>
   <body>
     <header>
       <h1>ledger-core · playground</h1>
-      <p>Event-sourced ledger orchestrated with Temporal — drive the live API.</p>
+      <p>Event-sourced ledger orchestrated with Temporal — drive the live API and watch the saga.</p>
     </header>
     <main>
       <div class="card wide">
@@ -135,8 +213,29 @@
           <div><label>Currency</label><input id="cur" value="USD" /></div>
         </div>
         <button onclick="transfer()">Start transfer</button>
-        <span id="status"></span>
-        <pre id="transferOut">—</pre>
+      </div>
+
+      <div class="card wide">
+        <h2>Transfer saga</h2>
+        <div class="saga-head">
+          <span class="mono" id="sagaId"></span>
+          <span id="sagaPill"></span>
+        </div>
+        <div id="sagaBody">
+          <p class="saga-empty">Start a transfer above to watch it move through the saga.</p>
+        </div>
+        <div class="stepper" id="stepper" hidden></div>
+        <div class="resolve" id="resolve" hidden>
+          <p>Parked — the source was debited but the destination was never credited.</p>
+          <div class="acts">
+            <button onclick="resolve('refund_source')">Refund source</button>
+            <button class="ghost" onclick="resolve('retry_credit')">Retry credit</button>
+          </div>
+        </div>
+        <div class="timeline" id="timeline" hidden>
+          <h3>Event timeline</h3>
+          <div id="events"></div>
+        </div>
       </div>
     </main>
 
@@ -176,6 +275,10 @@
         $("depositOut").textContent = JSON.stringify(r.data, null, 2);
       }
 
+      // --- saga rendering ---------------------------------------------------
+
+      let current = null; // { id, timer }
+
       async function transfer() {
         const r = await api("POST", "/api/transfers", {
           source_account_id: $("src").value,
@@ -184,21 +287,114 @@
           currency: $("cur").value,
         });
         const id = r.data.transfer_id;
-        if (!id) { $("transferOut").textContent = JSON.stringify(r.data, null, 2); return; }
-        poll(id, 0);
+        if (!id) {
+          $("sagaBody").innerHTML = `<p class="saga-empty">Could not start: ${escapeHtml(JSON.stringify(r.data))}</p>`;
+          return;
+        }
+        startWatching(id);
       }
 
-      async function poll(id, tries) {
-        const r = await api("GET", `/api/transfers/${id}`);
-        if (r.ok) {
-          const st = r.data.status;
-          $("status").innerHTML = ` <span class="pill s-${st}">${st}</span>`;
-          $("transferOut").textContent = JSON.stringify(r.data, null, 2);
-          const terminal = ["completed", "failed", "needs_reconciliation"].includes(st);
-          if (!terminal && tries < 40) return setTimeout(() => poll(id, tries + 1), 250);
-        } else if (tries < 40) {
-          return setTimeout(() => poll(id, tries + 1), 250);
-        }
+      async function resolve(decision) {
+        if (!current) return;
+        await api("POST", `/api/transfers/${current.id}/resolve`, { resolution: decision });
+        startWatching(current.id); // resume fast polling to show the resulting transition
+      }
+
+      function startWatching(id) {
+        if (current && current.timer) clearTimeout(current.timer);
+        current = { id, timer: null, tries: 0 };
+        $("sagaBody").innerHTML = "";
+        $("sagaId").textContent = id;
+        poll();
+      }
+
+      const TERMINAL = ["completed", "failed", "reconciled"];
+
+      // Milestone events, in lifecycle order, and how each maps onto the rail.
+      const OUTCOMES = {
+        TransferCompleted: { label: "Completed", cls: "done" },
+        TransferReconciled: { label: "Reconciled", cls: "branch-warn done" },
+        TransferParkedForReconciliation: { label: "Needs reconciliation", cls: "branch-warn current" },
+        TransferFailed: { label: "Failed", cls: "branch-err done" },
+      };
+
+      async function poll() {
+        if (!current) return;
+        const [status, events] = await Promise.all([
+          api("GET", `/api/transfers/${current.id}`),
+          api("GET", `/api/transfers/${current.id}/events`),
+        ]);
+        const st = status.ok ? status.data.status : null;
+        const evs = Array.isArray(events.data) ? events.data : [];
+
+        if (st) renderPill(st);
+        renderStepper(evs);
+        renderTimeline(evs);
+        $("resolve").hidden = st !== "needs_reconciliation";
+
+        current.tries += 1;
+        if (st && TERMINAL.includes(st)) return; // done
+        // needs_reconciliation waits on an operator — keep the view live but gentle.
+        const delay = st === "needs_reconciliation" ? 1500 : 300;
+        const cap = st === "needs_reconciliation" ? 400 : 60;
+        if (current.tries < cap) current.timer = setTimeout(poll, delay);
+      }
+
+      function renderPill(st) {
+        $("sagaPill").innerHTML = `<span class="pill s-${st}">${st.replace(/_/g, " ")}</span>`;
+      }
+
+      function renderStepper(events) {
+        const types = new Set(events.map((e) => e.event_type));
+        const stepper = $("stepper");
+        stepper.hidden = false;
+
+        const outcomeType = ["TransferCompleted", "TransferReconciled", "TransferParkedForReconciliation", "TransferFailed"]
+          .find((t) => types.has(t));
+        const outcome = outcomeType ? OUTCOMES[outcomeType] : { label: "Completed", cls: "pending" };
+
+        const rail = [
+          { label: "Initiated", done: types.has("TransferInitiated") },
+          { label: "Held", done: types.has("TransferHeld") },
+          { label: "Posted", done: types.has("TransferPosted") },
+        ];
+        // The current in-progress node is the first not-yet-done leg (if no terminal outcome).
+        let currentIdx = outcomeType ? -1 : rail.findIndex((s) => !s.done);
+
+        let html = "";
+        rail.forEach((s, i) => {
+          const cls = [s.done ? "done reached" : "pending", i === currentIdx ? "current reached" : ""].join(" ");
+          html += node(cls, s.label);
+        });
+        html += node(outcome.cls + " reached", outcome.label);
+        stepper.innerHTML = html;
+      }
+
+      function node(cls, label) {
+        return `<div class="step ${cls}"><span class="dot"></span><span class="lbl">${label}</span></div>`;
+      }
+
+      const EV_TONE = {
+        TransferCompleted: "ok",
+        TransferReconciled: "warn",
+        TransferParkedForReconciliation: "warn",
+        TransferFailed: "err",
+      };
+
+      function renderTimeline(events) {
+        $("timeline").hidden = events.length === 0;
+        $("events").innerHTML = events
+          .map((e) => {
+            const tone = EV_TONE[e.event_type] || "";
+            const t = new Date(e.occurred_at).toLocaleTimeString();
+            return `<div class="ev ${tone}"><span class="type">${e.event_type}</span>` +
+              `<span class="meta">v${e.version} · pos ${e.global_position} · ${t}</span></div>`;
+          })
+          .join("");
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
       }
     </script>
   </body>

@@ -1,8 +1,14 @@
 """Integration tests for the Postgres event store against a real database
 (spun up via testcontainers). Mirrors the in-memory store's contract."""
 
+# Raw asyncpg is used here to drive the append lock directly; relax the driver's
+# partially-typed surface at that boundary, as the store module does.
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
+
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 
+import asyncpg
 import pytest
 
 from ledger.domain.accounts.account import Account
@@ -10,7 +16,7 @@ from ledger.domain.accounts.events import ACCOUNT_STREAM
 from ledger.domain.shared.events import DomainEvent
 from ledger.domain.shared.identifiers import new_account_id, new_event_id
 from ledger.domain.shared.money import Money
-from ledger.eventstore.postgres import PostgresEventStore
+from ledger.eventstore.postgres import APPEND_LOCK_KEY, PostgresEventStore
 from ledger.eventstore.records import EventMetadata
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.repository import EventSourcedRepository
@@ -102,6 +108,85 @@ class TestPostgresEventStore:
         tail = await sample_store.read_all(from_position=first[0].global_position)
         assert all(e.global_position > first[0].global_position for e in tail) or tail == []
         _ = b
+
+    async def test_append_acquires_the_serialization_lock(
+        self, dsn: str, sample_store: PostgresEventStore
+    ) -> None:
+        # Prove append actually takes the global append lock: while an external
+        # session holds it, an append must block until the lock is released. If the
+        # lock were removed from append, this append would not block and the test
+        # would fail.
+        blocker = await asyncpg.connect(dsn)
+        try:
+            tx = blocker.transaction()
+            await tx.start()
+            await blocker.execute("SELECT pg_advisory_xact_lock($1)", APPEND_LOCK_KEY)
+
+            append_task = asyncio.create_task(
+                sample_store.append(
+                    stream_type="sample",
+                    stream_id=new_event_id(),
+                    expected_version=0,
+                    events=[SampleHappened(note="blocked")],
+                    metadata=EventMetadata.empty(),
+                )
+            )
+            await asyncio.sleep(0.2)
+            assert not append_task.done()  # append is waiting on the lock we hold
+
+            await tx.commit()  # release the lock
+            appended = await asyncio.wait_for(append_task, timeout=5)
+            assert len(appended) == 1
+        finally:
+            await blocker.close()
+
+    async def test_positions_follow_commit_order_under_the_lock(
+        self, dsn: str, sample_store: PostgresEventStore
+    ) -> None:
+        # Two sessions contend for the append lock the way append does. The second
+        # can only draw its global position after the first commits, so commit order
+        # equals position order — the property that makes cursor tailing gap-safe.
+        first = await asyncpg.connect(dsn)
+        second = await asyncpg.connect(dsn)
+        try:
+            tx_first = first.transaction()
+            await tx_first.start()
+            await first.execute("SELECT pg_advisory_xact_lock($1)", APPEND_LOCK_KEY)
+
+            tx_second = second.transaction()
+            await tx_second.start()
+            lock_second = asyncio.create_task(
+                second.execute("SELECT pg_advisory_xact_lock($1)", APPEND_LOCK_KEY)
+            )
+            await asyncio.sleep(0.2)
+            assert not lock_second.done()  # second session blocks while first holds the lock
+
+            pos_first = await first.fetchval(
+                "INSERT INTO events (event_id, stream_type, stream_id, version, "
+                "event_type, schema_version, payload, metadata) "
+                "VALUES ($1,'sample',$2,1,'SampleHappened',1,'{}'::jsonb,'{}'::jsonb) "
+                "RETURNING global_position",
+                new_event_id(),
+                new_event_id(),
+            )
+            await tx_first.commit()  # releases the lock; second proceeds
+
+            await asyncio.wait_for(lock_second, timeout=5)
+            pos_second = await second.fetchval(
+                "INSERT INTO events (event_id, stream_type, stream_id, version, "
+                "event_type, schema_version, payload, metadata) "
+                "VALUES ($1,'sample',$2,1,'SampleHappened',1,'{}'::jsonb,'{}'::jsonb) "
+                "RETURNING global_position",
+                new_event_id(),
+                new_event_id(),
+            )
+            await tx_second.commit()
+
+            # Earlier-committing session got the lower position: no reordering.
+            assert pos_second > pos_first
+        finally:
+            await first.close()
+            await second.close()
 
     async def test_account_round_trip(self, store: PostgresEventStore) -> None:
         repo: EventSourcedRepository[Account] = EventSourcedRepository(

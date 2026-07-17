@@ -31,6 +31,18 @@ INSERT INTO events (
 RETURNING global_position, occurred_at
 """
 
+# Global advisory-lock key, held for the whole append transaction so that
+# `global_position` (an IDENTITY sequence value assigned at INSERT time) is
+# handed out in commit order. Without it, a lower position can become visible
+# *after* a higher one was already consumed by a cursor tailer (projections /
+# outbox), silently skipping the lower-position event. Serializing appends makes
+# committed positions strictly increasing for consumers — no reordering, so a
+# cursor tail can never skip a committed event. Holes left by rolled-back appends
+# are harmless (a consumer just finds nothing at that number). The key is a fixed
+# app-namespaced constant so it cannot collide with locks taken elsewhere.
+# See changes/fix-eventstore-gapless-tailing for the full rationale.
+APPEND_LOCK_KEY = 0x1ED6E12A11_00_0001
+
 
 def _metadata_to_json(metadata: EventMetadata) -> str:
     return json.dumps(
@@ -93,6 +105,10 @@ class PostgresEventStore:
         metadata_json = _metadata_to_json(metadata)
         appended: list[StoredEvent] = []
         async with self._pool.acquire() as conn, conn.transaction():
+            # Serialize position assignment with a txn-scoped advisory lock so
+            # `global_position` order equals commit order (see APPEND_LOCK_KEY).
+            # Released automatically at COMMIT/ROLLBACK.
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", APPEND_LOCK_KEY)
             current = await conn.fetchval(
                 "SELECT COALESCE(MAX(version), 0) FROM events "
                 "WHERE stream_type = $1 AND stream_id = $2",

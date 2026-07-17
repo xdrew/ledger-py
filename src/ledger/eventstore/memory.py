@@ -2,6 +2,11 @@
 
 Semantically identical to the Postgres store (same optimistic-concurrency
 guard, same global ordering) but with no I/O.
+
+Gap-safe consumption holds here for free: appends run synchronously within the
+single-threaded event loop, so positions are assigned in commit order with no
+overlapping writers — the very property the Postgres store buys with an advisory
+lock. A cursor tail therefore never skips an appended event.
 """
 
 from collections.abc import Sequence

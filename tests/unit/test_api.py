@@ -4,13 +4,17 @@
 # relax the resulting noise for this file only.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 
+import asyncio
 from collections.abc import Iterator
+from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import ASGITransport, AsyncClient
 
 from ledger.api.context import AppContext
-from ledger.api.idempotency import IdempotencyStore
+from ledger.api.idempotency import ClaimResult, IdempotencyStore
 from ledger.api.main import create_app
 from ledger.config.settings import get_settings
 from ledger.domain.shared.identifiers import new_transfer_id
@@ -18,6 +22,7 @@ from ledger.domain.shared.money import Money
 from ledger.domain.transfers.transfer import Transfer
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
+from ledger.eventstore.store import ConcurrencyConflict
 from ledger.temporal.dependencies import build_repositories
 from ledger.temporal.messages import TransferInput
 
@@ -59,6 +64,16 @@ class TestAuth:
     def test_missing_api_key_is_401(self, client: TestClient) -> None:
         response = client.post("/api/accounts", json={"currency": "USD"})
         assert response.status_code == 401
+
+    def test_wrong_api_key_is_401(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/accounts", json={"currency": "USD"}, headers={"X-Api-Key": "not-the-key"}
+        )
+        assert response.status_code == 401
+
+    def test_correct_api_key_is_accepted(self, client: TestClient) -> None:
+        response = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS)
+        assert response.status_code == 201
 
     def test_healthz_is_open(self, client: TestClient) -> None:
         assert client.get("/healthz").status_code == 200
@@ -112,6 +127,30 @@ class TestAccounts:
         assert response.status_code == 404
         assert response.json()["code"] == "not_found"
 
+    def test_concurrency_conflict_is_409_problem_json(
+        self,
+        client: TestClient,
+        context: tuple[AppContext, FakeGateway],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx, _ = context
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+
+        async def _conflict(*_args: Any, **_kwargs: Any) -> None:
+            raise ConcurrencyConflict("account", UUID(account_id), 1, 2)
+
+        monkeypatch.setattr(ctx.repositories.accounts, "save", _conflict)
+        response = client.post(
+            f"/api/accounts/{account_id}/deposit",
+            json={"amount": 100, "currency": "USD"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 409
+        assert response.headers["content-type"] == "application/problem+json"
+        assert response.json()["code"] == "concurrency_conflict"
+
     def test_statement_and_events(self, client: TestClient) -> None:
         account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
             "account_id"
@@ -148,7 +187,7 @@ class TestTransfers:
         assert response.json()["status"] == "initiated"
         assert len(gateway.started) == 1
 
-    def test_idempotency_key_dedups(
+    def test_idempotency_key_replays_first_response(
         self, client: TestClient, context: tuple[AppContext, FakeGateway]
     ) -> None:
         _, gateway = context
@@ -162,7 +201,25 @@ class TestTransfers:
         first = client.post("/api/transfers", json=body, headers=headers)
         second = client.post("/api/transfers", json=body, headers=headers)
         assert first.json()["transfer_id"] == second.json()["transfer_id"]
-        assert len(gateway.started) == 1  # second was replayed from cache
+        assert len(gateway.started) == 1  # second was replayed, not re-run
+
+    def test_idempotency_key_reused_with_different_body_is_422(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        _, gateway = context
+        headers = {**HEADERS, "Idempotency-Key": "reuse-1"}
+        base = {
+            "source_account_id": str(new_transfer_id()),
+            "destination_account_id": str(new_transfer_id()),
+            "amount": 400,
+            "currency": "USD",
+        }
+        first = client.post("/api/transfers", json=base, headers=headers)
+        assert first.status_code == 202
+        second = client.post("/api/transfers", json={**base, "amount": 999}, headers=headers)
+        assert second.status_code == 422
+        assert second.json()["code"] == "idempotency_key_reused"
+        assert len(gateway.started) == 1  # the mismatched request started nothing
 
     async def test_get_transfer(
         self, client: TestClient, context: tuple[AppContext, FakeGateway]
@@ -185,3 +242,79 @@ class TestTransfers:
     def test_get_unknown_transfer_is_404(self, client: TestClient) -> None:
         response = client.get(f"/api/transfers/{new_transfer_id()}", headers=HEADERS)
         assert response.status_code == 404
+
+
+class TestIdempotencyStore:
+    def test_claim_lifecycle(self) -> None:
+        store = IdempotencyStore()
+
+        result, response = store.claim("k", "route", "fp")
+        assert result is ClaimResult.NEW and response is None
+
+        in_progress, _ = store.claim("k", "route", "fp")
+        assert in_progress is ClaimResult.IN_PROGRESS
+
+        mismatch, _ = store.claim("k", "route", "different")
+        assert mismatch is ClaimResult.MISMATCH
+
+        store.complete("k", "route", 202, {"x": 1})
+        replay, stored = store.claim("k", "route", "fp")
+        assert replay is ClaimResult.REPLAY
+        assert stored is not None and stored.body == {"x": 1}
+
+    def test_discard_releases_reservation(self) -> None:
+        store = IdempotencyStore()
+        store.claim("k", "route", "fp")
+        store.discard("k", "route")
+        result, _ = store.claim("k", "route", "fp")
+        assert result is ClaimResult.NEW  # reservation was released, key reusable
+
+
+class TestIdempotencyConcurrency:
+    async def test_concurrent_same_key_starts_saga_once(self) -> None:
+        registry = build_event_registry()
+        store = InMemoryEventStore(registry)
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        started: list[TransferInput] = []
+
+        class BlockingGateway:
+            async def start(self, data: TransferInput) -> None:
+                started.append(data)
+                entered.set()
+                await release.wait()
+
+        ctx = AppContext(
+            settings=get_settings(),
+            store=store,
+            repositories=build_repositories(store, registry),
+            gateway=BlockingGateway(),
+            idempotency=IdempotencyStore(),
+        )
+        app = create_app()
+        app.state.context = ctx
+
+        body = {
+            "source_account_id": str(new_transfer_id()),
+            "destination_account_id": str(new_transfer_id()),
+            "amount": 400,
+            "currency": "USD",
+        }
+        headers = {**HEADERS, "Idempotency-Key": "race-1"}
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+
+            async def fire() -> Any:
+                return await http.post("/api/transfers", json=body, headers=headers)
+
+            first = asyncio.create_task(fire())
+            await entered.wait()  # first request has claimed the key and is in flight
+            second = await fire()  # concurrent duplicate while the first is in flight
+            release.set()
+            first_response = await first
+
+        assert len(started) == 1  # the saga was started exactly once
+        statuses = {first_response.status_code, second.status_code}
+        assert statuses == {202, 409}
+        duplicate = second if second.status_code == 409 else first_response
+        assert duplicate.json()["code"] == "duplicate_request_in_progress"

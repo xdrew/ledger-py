@@ -1,5 +1,7 @@
 """Transfer endpoints: start a saga, read its status / events."""
 
+import hashlib
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
@@ -7,6 +9,8 @@ from fastapi.responses import JSONResponse
 
 from ledger.api.auth import require_api_key
 from ledger.api.context import AppContext, get_context
+from ledger.api.idempotency import ClaimResult
+from ledger.api.problem_details import problem_response
 from ledger.api.schemas import (
     CreateTransferRequest,
     EventResponse,
@@ -27,6 +31,12 @@ router = APIRouter(
 
 Context = Annotated[AppContext, Depends(get_context)]
 _ROUTE = "POST /api/transfers"
+
+
+def _fingerprint(body: CreateTransferRequest) -> str:
+    """Stable hash of the semantic request (excludes the server-minted id)."""
+    canonical = json.dumps(body.model_dump(mode="json"), sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _event_response(event: StoredEvent) -> EventResponse:
@@ -60,22 +70,43 @@ async def create_transfer(
     idempotency_key: Annotated[str | None, Header()] = None,
 ) -> TransferAccepted | JSONResponse:
     if idempotency_key is not None:
-        cached = context.idempotency.recall(idempotency_key, _ROUTE)
-        if cached is not None:
-            return JSONResponse(status_code=cached.status_code, content=cached.body)
+        # Claim the key atomically *before* any work so concurrent duplicates
+        # cannot each start a saga (claim() does no await — atomic under the loop).
+        result, stored = context.idempotency.claim(idempotency_key, _ROUTE, _fingerprint(body))
+        match result:
+            case ClaimResult.REPLAY if stored is not None:
+                return JSONResponse(status_code=stored.status_code, content=stored.body)
+            case ClaimResult.IN_PROGRESS:
+                return problem_response(
+                    "duplicate_request_in_progress",
+                    "a request with this idempotency key is already in progress",
+                )
+            case ClaimResult.MISMATCH:
+                return problem_response(
+                    "idempotency_key_reused",
+                    "idempotency key was reused with a different request",
+                )
+            case _:  # NEW — we hold the claim and must complete or discard it
+                pass
 
     transfer_id = new_transfer_id()
-    await context.gateway.start(
-        TransferInput(
-            transfer_id=transfer_id,
-            source_account_id=body.source_account_id,
-            destination_account_id=body.destination_account_id,
-            amount=Money(amount=body.amount, currency=body.currency),
+    try:
+        await context.gateway.start(
+            TransferInput(
+                transfer_id=transfer_id,
+                source_account_id=body.source_account_id,
+                destination_account_id=body.destination_account_id,
+                amount=Money(amount=body.amount, currency=body.currency),
+            )
         )
-    )
+    except Exception:
+        if idempotency_key is not None:
+            context.idempotency.discard(idempotency_key, _ROUTE)
+        raise
+
     accepted = TransferAccepted(transfer_id=transfer_id, status="initiated")
     if idempotency_key is not None:
-        context.idempotency.remember(idempotency_key, _ROUTE, 202, accepted.model_dump(mode="json"))
+        context.idempotency.complete(idempotency_key, _ROUTE, 202, accepted.model_dump(mode="json"))
     return accepted
 
 

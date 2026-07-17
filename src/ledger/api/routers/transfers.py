@@ -14,14 +14,15 @@ from ledger.api.problem_details import problem_response
 from ledger.api.schemas import (
     CreateTransferRequest,
     EventResponse,
+    ResolveTransferRequest,
     TransferAccepted,
     TransferResponse,
 )
-from ledger.domain.shared.errors import NotFound
+from ledger.domain.shared.errors import InvalidTransition, NotFound
 from ledger.domain.shared.identifiers import TransferId, new_transfer_id
 from ledger.domain.shared.money import Money
 from ledger.domain.transfers.events import TRANSFER_STREAM
-from ledger.domain.transfers.transfer import Transfer
+from ledger.domain.transfers.transfer import Transfer, TransferStatus
 from ledger.eventstore.records import StoredEvent
 from ledger.temporal.messages import TransferInput
 
@@ -108,6 +109,21 @@ async def create_transfer(
     if idempotency_key is not None:
         context.idempotency.complete(idempotency_key, _ROUTE, 202, accepted.model_dump(mode="json"))
     return accepted
+
+
+@router.post("/{transfer_id}/resolve", status_code=202, response_model=TransferAccepted)
+async def resolve_transfer(
+    transfer_id: TransferId, body: ResolveTransferRequest, context: Context
+) -> TransferAccepted:
+    transfer = await context.repositories.transfers.load(transfer_id)
+    if transfer is None:
+        raise NotFound(f"transfer {transfer_id} not found")
+    if transfer.status is not TransferStatus.NEEDS_RECONCILIATION:
+        raise InvalidTransition(
+            f"transfer {transfer_id} is {transfer.status.value}, not needs_reconciliation"
+        )
+    await context.gateway.resolve(transfer_id, body.resolution)
+    return TransferAccepted(transfer_id=transfer_id, status="resolving")
 
 
 @router.get("/{transfer_id}")

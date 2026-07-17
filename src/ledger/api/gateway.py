@@ -9,12 +9,17 @@ from typing import Protocol
 
 from temporalio.client import Client
 
-from ledger.temporal.messages import TransferInput
+from ledger.domain.shared.identifiers import TransferId
+from ledger.temporal.messages import ReconciliationResolution, TransferInput
 from ledger.temporal.workflows.transfer_workflow import TransferWorkflow
 
 
 class TransferGateway(Protocol):
     async def start(self, data: TransferInput) -> None: ...
+
+    async def resolve(
+        self, transfer_id: TransferId, decision: ReconciliationResolution
+    ) -> None: ...
 
 
 class TemporalTransferGateway:
@@ -29,3 +34,7 @@ class TemporalTransferGateway:
             id=f"transfer-{data.transfer_id}",
             task_queue=self._task_queue,
         )
+
+    async def resolve(self, transfer_id: TransferId, decision: ReconciliationResolution) -> None:
+        handle = self._client.get_workflow_handle(f"transfer-{transfer_id}")
+        await handle.signal(TransferWorkflow.resolve_reconciliation, decision)

@@ -17,14 +17,14 @@ from ledger.api.context import AppContext
 from ledger.api.idempotency import ClaimResult, IdempotencyStore
 from ledger.api.main import create_app
 from ledger.config.settings import get_settings
-from ledger.domain.shared.identifiers import new_transfer_id
+from ledger.domain.shared.identifiers import new_account_id, new_journal_entry_id, new_transfer_id
 from ledger.domain.shared.money import Money
 from ledger.domain.transfers.transfer import Transfer
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.store import ConcurrencyConflict
 from ledger.temporal.dependencies import build_repositories
-from ledger.temporal.messages import TransferInput
+from ledger.temporal.messages import ReconciliationResolution, TransferInput
 
 HEADERS = {"X-Api-Key": "dev-local-key"}
 
@@ -32,9 +32,13 @@ HEADERS = {"X-Api-Key": "dev-local-key"}
 class FakeGateway:
     def __init__(self) -> None:
         self.started: list[TransferInput] = []
+        self.resolved: list[tuple[UUID, ReconciliationResolution]] = []
 
     async def start(self, data: TransferInput) -> None:
         self.started.append(data)
+
+    async def resolve(self, transfer_id: UUID, decision: ReconciliationResolution) -> None:
+        self.resolved.append((transfer_id, decision))
 
 
 @pytest.fixture
@@ -243,6 +247,48 @@ class TestTransfers:
         response = client.get(f"/api/transfers/{new_transfer_id()}", headers=HEADERS)
         assert response.status_code == 404
 
+    async def _park(self, ctx: AppContext) -> UUID:
+        transfer = Transfer.initiate(
+            new_transfer_id(), new_account_id(), new_account_id(), Money(amount=400, currency="USD")
+        )
+        transfer.mark_held()
+        transfer.mark_posted(new_journal_entry_id())
+        transfer.park_for_reconciliation("credit failed after debit")
+        assert transfer.transfer_id is not None
+        await ctx.repositories.transfers.save(transfer.transfer_id, transfer)
+        return transfer.transfer_id
+
+    async def test_resolve_parked_transfer_signals_gateway(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        ctx, gateway = context
+        transfer_id = await self._park(ctx)
+        response = client.post(
+            f"/api/transfers/{transfer_id}/resolve",
+            json={"resolution": "refund_source"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 202
+        assert gateway.resolved == [(transfer_id, ReconciliationResolution.REFUND_SOURCE)]
+
+    async def test_resolve_non_parked_transfer_is_409(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        ctx, gateway = context
+        transfer = Transfer.initiate(
+            new_transfer_id(), new_account_id(), new_account_id(), Money(amount=400, currency="USD")
+        )
+        assert transfer.transfer_id is not None
+        await ctx.repositories.transfers.save(transfer.transfer_id, transfer)
+        response = client.post(
+            f"/api/transfers/{transfer.transfer_id}/resolve",
+            json={"resolution": "retry_credit"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "invalid_transition"
+        assert gateway.resolved == []
+
 
 class TestIdempotencyStore:
     def test_claim_lifecycle(self) -> None:
@@ -283,6 +329,9 @@ class TestIdempotencyConcurrency:
                 started.append(data)
                 entered.set()
                 await release.wait()
+
+            async def resolve(self, transfer_id: UUID, decision: ReconciliationResolution) -> None:
+                raise AssertionError("resolve not expected in this test")
 
         ctx = AppContext(
             settings=get_settings(),

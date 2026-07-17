@@ -10,6 +10,7 @@ from ledger.domain.shared.identifiers import AccountId, JournalEntryId, Transfer
 from ledger.domain.shared.money import CurrencyCode
 from ledger.domain.transfers.events import FailureReason
 from ledger.domain.transfers.transfer import TransferStatus
+from ledger.temporal.messages import ReconciliationResolution
 
 
 class OpenAccountRequest(BaseModel):
@@ -56,6 +57,10 @@ class CreateTransferRequest(BaseModel):
 class TransferAccepted(BaseModel):
     transfer_id: TransferId
     status: str
+
+
+class ResolveTransferRequest(BaseModel):
+    resolution: ReconciliationResolution
 
 
 class TransferResponse(BaseModel):

@@ -34,7 +34,7 @@ from ledger.domain.shared.identifiers import AccountId
 from ledger.domain.transfers.operations import journal_entry_id_for, operation_id
 from ledger.domain.transfers.transfer import Transfer, TransferStatus
 from ledger.eventstore.repository import EventSourcedRepository
-from ledger.temporal.messages import FailInput, ParkInput, TransferInput
+from ledger.temporal.messages import FailInput, ParkInput, RefundInput, TransferInput
 
 _NON_TERMINAL = frozenset({TransferStatus.INITIATED, TransferStatus.HELD, TransferStatus.POSTED})
 
@@ -149,8 +149,38 @@ class TransferActivities:
             raise _terminal(err) from err
 
         transfer = await self.transfers.load(data.transfer_id)
-        if transfer is not None and transfer.status is TransferStatus.POSTED:
+        # Completable from Posted (happy path) or NeedsReconciliation (a retried
+        # credit resolving a parked transfer). Either way the money reached the
+        # destination, so Completed is truthful.
+        if transfer is not None and transfer.status in (
+            TransferStatus.POSTED,
+            TransferStatus.NEEDS_RECONCILIATION,
+        ):
             transfer.complete()
+            await self.transfers.save(data.transfer_id, transfer)
+
+    @activity.defn
+    async def refund_source(self, data: RefundInput) -> None:
+        """Resolve a parked transfer by returning the debited funds to the source.
+
+        The debit drew from the source's reserved bucket, so the money settled out
+        entirely; the refund credits it back as spendable ``available`` funds under
+        a distinct deterministic op id, then records the reconciliation. Idempotent
+        under retry and status-guarded so it applies at most once.
+        """
+        op = operation_id(data.transfer_id, "refund")
+        try:
+            source = await self.accounts.load(data.source_account_id)
+            if source is None:
+                raise UnknownAccount(str(data.source_account_id))
+            source.credit(data.amount, op)
+            await self.accounts.save(data.source_account_id, source)
+        except (AccountNotActive, UnknownAccount) as err:
+            raise _terminal(err) from err
+
+        transfer = await self.transfers.load(data.transfer_id)
+        if transfer is not None and transfer.status is TransferStatus.NEEDS_RECONCILIATION:
+            transfer.reconcile("refunded", "funds returned to source")
             await self.transfers.save(data.transfer_id, transfer)
 
     @activity.defn
@@ -187,6 +217,7 @@ class TransferActivities:
             self.post_journal,
             self.settle_debit,
             self.settle_credit,
+            self.refund_source,
             self.release_hold,
             self.fail_transfer,
             self.park_transfer,

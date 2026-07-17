@@ -32,3 +32,21 @@ ledger trial balance) is the mechanism of record for closing the gap.
   "stuck-saga runbook" from the PHP version, now backed by Temporal visibility.
 - Requires a reconciliation path (operator signal and/or scheduled activity) to
   drive `needs_reconciliation` workflows to resolution.
+
+## Resolution mechanism (implemented)
+
+The parked workflow does **not** terminate — it stays alive and awaits a
+`resolve_reconciliation` signal carrying an operator decision:
+
+- **refund-source** — credit the debited amount back to the source's available
+  balance under a deterministic, idempotent operation id, record
+  `TransferReconciled`, and reach the terminal `Reconciled` state. Used when the
+  destination genuinely cannot be credited.
+- **retry-credit** — re-attempt the destination credit; on success the transfer
+  truthfully reaches `Completed`, on continued failure it remains parked awaiting
+  a further decision.
+
+`Reconciled` is kept distinct from `Completed`: completed means the destination
+received the money; reconciled means the transfer was unwound back to the source.
+A scheduled auto-resolution policy (e.g. refund after N hours) can layer on top of
+this signal later.

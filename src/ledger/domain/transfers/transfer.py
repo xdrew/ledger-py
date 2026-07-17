@@ -5,6 +5,8 @@ legal transitions, so the persisted stream is a faithful, queryable history:
 
     Initiated -> Held -> Posted -> Completed
                                 \\-> NeedsReconciliation   (credit failed post-debit)
+                                        |-> Reconciled     (operator refunded the source)
+                                        \\-> Completed     (operator retried credit; it landed)
     (Initiated|Held|Posted) -> Failed                     (compensated, no money moved)
 """
 
@@ -24,6 +26,7 @@ from ledger.domain.transfers.events import (
     TransferInitiated,
     TransferParkedForReconciliation,
     TransferPosted,
+    TransferReconciled,
 )
 
 
@@ -34,6 +37,7 @@ class TransferStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     NEEDS_RECONCILIATION = "needs_reconciliation"
+    RECONCILED = "reconciled"
 
 
 _NON_TERMINAL = frozenset({TransferStatus.INITIATED, TransferStatus.HELD, TransferStatus.POSTED})
@@ -82,7 +86,11 @@ class Transfer(AggregateRoot[TransferEvent]):
         self._record(TransferPosted(journal_entry_id=journal_entry_id))
 
     def complete(self) -> None:
-        self._assert_status(TransferStatus.POSTED)
+        # Reachable from Posted (happy path) or from NeedsReconciliation when an
+        # operator's retried credit finally lands — either way the destination
+        # received the money, so Completed is the truthful terminal state.
+        if self.status not in (TransferStatus.POSTED, TransferStatus.NEEDS_RECONCILIATION):
+            raise InvalidTransition(f"cannot complete a {self.status} transfer")
         self._record(TransferCompleted())
 
     def fail(self, reason: FailureReason, detail: str | None = None) -> None:
@@ -93,6 +101,11 @@ class Transfer(AggregateRoot[TransferEvent]):
     def park_for_reconciliation(self, detail: str) -> None:
         self._assert_status(TransferStatus.POSTED)
         self._record(TransferParkedForReconciliation(detail=detail))
+
+    def reconcile(self, resolution: str, detail: str | None = None) -> None:
+        """Resolve a parked transfer (e.g. after refunding the source)."""
+        self._assert_status(TransferStatus.NEEDS_RECONCILIATION)
+        self._record(TransferReconciled(resolution=resolution, detail=detail))
 
     def _assert_status(self, expected: TransferStatus) -> None:
         if self.status is not expected:
@@ -123,3 +136,5 @@ class Transfer(AggregateRoot[TransferEvent]):
                 self.status = TransferStatus.FAILED
             case TransferParkedForReconciliation():
                 self.status = TransferStatus.NEEDS_RECONCILIATION
+            case TransferReconciled():
+                self.status = TransferStatus.RECONCILED

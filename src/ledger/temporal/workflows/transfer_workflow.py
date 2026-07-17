@@ -23,6 +23,8 @@ with workflow.unsafe.imports_passed_through():
     from ledger.temporal.messages import (
         FailInput,
         ParkInput,
+        ReconciliationResolution,
+        RefundInput,
         TransferInput,
         TransferResult,
     )
@@ -53,6 +55,7 @@ class TransferWorkflow:
     def __init__(self) -> None:
         self._status: TransferStatus = TransferStatus.INITIATED
         self._failure: FailureReason | None = None
+        self._resolution: ReconciliationResolution | None = None
 
     @workflow.query
     def current_status(self) -> str:
@@ -61,6 +64,11 @@ class TransferWorkflow:
     @workflow.query
     def failure_reason(self) -> str | None:
         return self._failure.value if self._failure is not None else None
+
+    @workflow.signal
+    def resolve_reconciliation(self, decision: ReconciliationResolution) -> None:
+        """Operator decision for a parked transfer; consumed by the park loop."""
+        self._resolution = decision
 
     @workflow.run
     async def run(self, data: TransferInput) -> TransferResult:
@@ -117,13 +125,7 @@ class TransferWorkflow:
                     start_to_close_timeout=_ACTIVITY_TIMEOUT,
                     retry_policy=_DEFAULT_RETRY,
                 )
-                self._status = TransferStatus.NEEDS_RECONCILIATION
-                return TransferResult(
-                    transfer_id=data.transfer_id,
-                    status=self._status,
-                    journal_entry_id=UUID(entry_id),
-                    detail="credit failed after debit; parked for reconciliation",
-                )
+                return await self._await_resolution(data, entry_id)
 
             self._status = TransferStatus.COMPLETED
             return TransferResult(
@@ -154,4 +156,51 @@ class TransferWorkflow:
                 status=self._status,
                 failure_reason=reason,
                 detail=detail,
+            )
+
+    async def _await_resolution(self, data: TransferInput, entry_id: str) -> TransferResult:
+        """Park in ``needs_reconciliation`` and wait for operator resolution.
+
+        The saga stays alive (visible in the Temporal UI, status queryable) until an
+        operator signals a decision: retry the credit (completes if it now lands, else
+        stays parked) or refund the source (terminal ``Reconciled``).
+        """
+        self._status = TransferStatus.NEEDS_RECONCILIATION
+        while True:
+            await workflow.wait_condition(lambda: self._resolution is not None)
+            decision, self._resolution = self._resolution, None
+
+            if decision is ReconciliationResolution.RETRY_CREDIT:
+                try:
+                    await workflow.execute_activity_method(
+                        TransferActivities.settle_credit,
+                        data,
+                        start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                        retry_policy=_CREDIT_RETRY,
+                    )
+                except ActivityError:
+                    continue  # still cannot credit; remain parked for a further decision
+                self._status = TransferStatus.COMPLETED
+                return TransferResult(
+                    transfer_id=data.transfer_id,
+                    status=self._status,
+                    journal_entry_id=UUID(entry_id),
+                )
+
+            await workflow.execute_activity_method(
+                TransferActivities.refund_source,
+                RefundInput(
+                    transfer_id=data.transfer_id,
+                    source_account_id=data.source_account_id,
+                    amount=data.amount,
+                ),
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                retry_policy=_DEFAULT_RETRY,
+            )
+            self._status = TransferStatus.RECONCILED
+            return TransferResult(
+                transfer_id=data.transfer_id,
+                status=self._status,
+                journal_entry_id=UUID(entry_id),
+                detail="refunded to source",
             )

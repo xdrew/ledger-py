@@ -3,12 +3,21 @@
 Pydantic models throughout, carried by Temporal's pydantic data converter.
 """
 
+from enum import StrEnum
+
 from pydantic import BaseModel
 
 from ledger.domain.shared.identifiers import AccountId, JournalEntryId, TransferId
 from ledger.domain.shared.money import Money
 from ledger.domain.transfers.events import FailureReason
 from ledger.domain.transfers.transfer import TransferStatus
+
+
+class ReconciliationResolution(StrEnum):
+    """An operator's decision for a parked (needs-reconciliation) transfer."""
+
+    RETRY_CREDIT = "retry_credit"  # re-attempt the destination credit
+    REFUND_SOURCE = "refund_source"  # return the debited funds to the source
 
 
 class TransferInput(BaseModel):
@@ -28,6 +37,12 @@ class FailInput(BaseModel):
 class ParkInput(BaseModel):
     transfer_id: TransferId
     detail: str
+
+
+class RefundInput(BaseModel):
+    transfer_id: TransferId
+    source_account_id: AccountId
+    amount: Money
 
 
 class TransferResult(BaseModel):

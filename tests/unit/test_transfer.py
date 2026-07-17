@@ -72,6 +72,36 @@ class TestTransferStateMachine:
         with pytest.raises(InvalidTransition):
             transfer.park_for_reconciliation("nope")
 
+    def _parked(self) -> Transfer:
+        transfer = _initiated()
+        transfer.mark_held()
+        transfer.mark_posted(new_journal_entry_id())
+        transfer.park_for_reconciliation("credit failed")
+        return transfer
+
+    def test_reconcile_from_parked(self) -> None:
+        transfer = self._parked()
+        transfer.reconcile("refunded", "returned to source")
+        assert transfer.status is TransferStatus.RECONCILED
+
+    def test_reconcile_requires_parked(self) -> None:
+        transfer = _initiated()
+        transfer.mark_held()
+        transfer.mark_posted(new_journal_entry_id())
+        with pytest.raises(InvalidTransition):
+            transfer.reconcile("refunded")  # POSTED, not parked
+
+    def test_complete_from_parked_after_retried_credit(self) -> None:
+        transfer = self._parked()
+        transfer.complete()  # a retried credit landed
+        assert transfer.status is TransferStatus.COMPLETED
+
+    def test_cannot_reconcile_a_reconciled_transfer(self) -> None:
+        transfer = self._parked()
+        transfer.reconcile("refunded")
+        with pytest.raises(InvalidTransition):
+            transfer.reconcile("refunded")
+
     async def test_round_trip_through_repository(self) -> None:
         registry = build_event_registry()
         store = InMemoryEventStore(registry)

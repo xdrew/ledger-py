@@ -49,6 +49,18 @@ class TransferParkedForReconciliation(DomainEvent):
     detail: str
 
 
+class TransferReconciled(DomainEvent):
+    """A parked transfer was resolved by an operator decision.
+
+    ``resolution`` is the applied outcome (e.g. ``refunded``); the money movement
+    that backs it (a refund credit to the source) is recorded on the account
+    stream. A retried credit that succeeds records ``TransferCompleted`` instead.
+    """
+
+    resolution: str
+    detail: str | None = None
+
+
 type TransferEvent = (
     TransferInitiated
     | TransferHeld
@@ -56,6 +68,7 @@ type TransferEvent = (
     | TransferCompleted
     | TransferFailed
     | TransferParkedForReconciliation
+    | TransferReconciled
 )
 
 TRANSFER_STREAM = "transfer"
@@ -67,4 +80,5 @@ TRANSFER_EVENT_TYPES: tuple[type[DomainEvent], ...] = (
     TransferCompleted,
     TransferFailed,
     TransferParkedForReconciliation,
+    TransferReconciled,
 )

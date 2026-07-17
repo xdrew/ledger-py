@@ -24,3 +24,6 @@ build/
 # Local data
 var/
 *.log
+
+# local compose override (host port remap)
+docker-compose.override.yml

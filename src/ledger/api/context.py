@@ -22,6 +22,12 @@ class AppContext:
     gateway: TransferGateway
     idempotency: IdempotencyStore
 
+    async def aclose(self) -> None:
+        """Release owned infrastructure resources (the event-store pool)."""
+        close = getattr(self.store, "aclose", None)
+        if close is not None:
+            await close()
+
 
 async def build_runtime_context(settings: Settings) -> AppContext:
     registry = build_event_registry()

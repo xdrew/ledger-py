@@ -19,9 +19,15 @@ from ledger.showcase.router import router as showcase_router
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Tests inject app.state.context up front; otherwise build it (connects Temporal).
-    if getattr(app.state, "context", None) is None:
+    owns_context = getattr(app.state, "context", None) is None
+    if owns_context:
         app.state.context = await build_runtime_context(get_settings())
-    yield
+    try:
+        yield
+    finally:
+        # Only close what we opened; a test-injected context is left untouched.
+        if owns_context:
+            await app.state.context.aclose()
 
 
 def _instrument(app: FastAPI, settings: Settings) -> None:

@@ -290,6 +290,58 @@ class TestTransfers:
         assert gateway.resolved == []
 
 
+class _ClosableStore(InMemoryEventStore):
+    def __init__(self) -> None:
+        super().__init__(build_event_registry())
+        self.closed = 0
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+def _ctx_with(store: Any) -> AppContext:
+    registry = build_event_registry()
+    mem = InMemoryEventStore(registry)
+    return AppContext(
+        settings=get_settings(),
+        store=store,
+        repositories=build_repositories(mem, registry),
+        gateway=FakeGateway(),
+        idempotency=IdempotencyStore(),
+    )
+
+
+class TestLifecycle:
+    async def test_aclose_closes_store_that_supports_it(self) -> None:
+        store = _ClosableStore()
+        await _ctx_with(store).aclose()
+        assert store.closed == 1
+
+    async def test_aclose_is_noop_for_plain_store(self) -> None:
+        # In-memory store has no aclose; closing the context must not raise.
+        await _ctx_with(InMemoryEventStore(build_event_registry())).aclose()
+
+    def test_lifespan_closes_owned_context(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = _ClosableStore()
+
+        async def _build(_settings: Any) -> AppContext:
+            return _ctx_with(store)
+
+        monkeypatch.setattr("ledger.api.main.build_runtime_context", _build)
+        app = create_app()  # no injected context → lifespan builds and owns it
+        with TestClient(app):
+            pass
+        assert store.closed == 1
+
+    def test_lifespan_leaves_injected_context_open(self) -> None:
+        store = _ClosableStore()
+        app = create_app()
+        app.state.context = _ctx_with(store)  # injected → not owned
+        with TestClient(app):
+            pass
+        assert store.closed == 0
+
+
 class TestIdempotencyStore:
     def test_claim_lifecycle(self) -> None:
         store = IdempotencyStore()

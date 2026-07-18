@@ -9,6 +9,7 @@ reliability is Temporal's job, so the relay is not on the critical path.
 # asyncpg's call surface is only partially typed; relax at that boundary.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
+import asyncio
 import json
 import logging
 from typing import Protocol
@@ -91,3 +92,18 @@ class OutboxRelay:
         while (handled := await self.run_once()) > 0:
             total += handled
         return total
+
+
+async def run_relay(relay: OutboxRelay, *, poll_seconds: float = 1.0) -> None:
+    """Continuously drain ``relay``, waiting between passes, until cancelled.
+
+    Publishes new events as they arrive; exits cleanly on cancellation.
+    """
+    _log.info("outbox relay started")
+    try:
+        while True:
+            await relay.drain()
+            await asyncio.sleep(poll_seconds)
+    except asyncio.CancelledError:
+        _log.info("outbox relay stopped")
+        raise

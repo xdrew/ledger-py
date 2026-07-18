@@ -21,6 +21,7 @@ from ledger.eventstore.records import EventMetadata
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.repository import EventSourcedRepository
 from ledger.eventstore.store import ConcurrencyConflict
+from ledger.projections.pg_checkpoints import PostgresCheckpointStore
 
 pytest.importorskip("testcontainers.postgres")
 from testcontainers.postgres import PostgresContainer
@@ -187,6 +188,21 @@ class TestPostgresEventStore:
         finally:
             await first.close()
             await second.close()
+
+    async def test_checkpoint_store_round_trips(
+        self, dsn: str, sample_store: PostgresEventStore
+    ) -> None:
+        # sample_store.connect() applied the schema, creating relay_checkpoints.
+        pool = await asyncpg.create_pool(dsn)
+        try:
+            checkpoints = PostgresCheckpointStore(pool, table="relay_checkpoints")
+            assert await checkpoints.load("relay-test") == 0  # unknown → 0
+            await checkpoints.save("relay-test", 42)
+            assert await checkpoints.load("relay-test") == 42
+            await checkpoints.save("relay-test", 99)  # upsert advances
+            assert await checkpoints.load("relay-test") == 99
+        finally:
+            await pool.close()
 
     async def test_account_round_trip(self, store: PostgresEventStore) -> None:
         repo: EventSourcedRepository[Account] = EventSourcedRepository(

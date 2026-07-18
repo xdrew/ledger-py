@@ -1,5 +1,9 @@
 """Unit tests for the outbox relay."""
 
+import asyncio
+
+import pytest
+
 from ledger.domain.accounts.account import Account
 from ledger.domain.accounts.events import ACCOUNT_STREAM
 from ledger.domain.shared.identifiers import new_account_id, new_event_id
@@ -8,7 +12,7 @@ from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.records import StoredEvent
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.repository import EventSourcedRepository
-from ledger.outbox.relay import OutboxRelay
+from ledger.outbox.relay import OutboxRelay, run_relay
 from ledger.projections.runner import InMemoryCheckpointStore
 
 
@@ -63,3 +67,19 @@ class TestOutboxRelay:
         # Second drain publishes nothing new.
         assert await relay.run_once() == 0
         assert len(publisher.events) == 3
+
+    async def test_run_relay_publishes_then_stops_cleanly(self) -> None:
+        store = await _seed()
+        publisher = CollectingPublisher()
+        relay = OutboxRelay(store=store, checkpoints=InMemoryCheckpointStore(), publisher=publisher)
+        task = asyncio.create_task(run_relay(relay, poll_seconds=0.01))
+        try:
+            for _ in range(200):
+                if len(publisher.events) >= 3:
+                    break
+                await asyncio.sleep(0.01)
+            assert len(publisher.events) == 3  # the running loop published the backlog
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task

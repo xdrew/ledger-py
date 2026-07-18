@@ -38,6 +38,7 @@ dev = [
 ledger-worker = "ledger.temporal.worker:main"
 ledger-api = "ledger.api.main:main"
 ledger-migrate = "ledger.eventstore.migrate:main"
+ledger-relay = "ledger.outbox.main:main"
 
 [build-system]
 requires = ["hatchling"]

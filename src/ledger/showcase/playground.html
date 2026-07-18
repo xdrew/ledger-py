@@ -6,21 +6,24 @@
     <title>ledger-core · live cockpit</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2312171e'/%3E%3Cg stroke='%23c9a227' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M9 11h14M9 16h14M9 21h9'/%3E%3C/g%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23fbfcfd'/%3E%3Cg stroke='%23a07a12' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M9 11h14M9 16h14M9 21h9'/%3E%3C/g%3E%3C/svg%3E"
     />
     <style>
       :root {
-        --ink: #12171e;
-        --panel: #19212b;
-        --panel-2: #1f2934;
-        --line: #29343f;
-        --text: #e9eef3;
-        --muted: #8496a8;
-        --brass: #c9a227;
-        --brass-dim: #7a6620;
-        --green: #4fb286;
-        --red: #c0554d;
-        --amber: #d9a441;
+        --paper: #f4f6f9;
+        --card: #ffffff;
+        --sub: #eef1f5;
+        --line: #e2e7ee;
+        --line-2: #d3dae3;
+        --ink: #1b2431;
+        --muted: #6b7686;
+        --brass: #9a7213;
+        --brass-bg: #d9b64a;
+        --green: #2f855a;
+        --green-bar: #48a97a;
+        --red: #b0473f;
+        --red-bar: #cd6a62;
+        --amber: #b0761a;
         --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
         --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
@@ -29,142 +32,124 @@
       body {
         margin: 0;
         background:
-          radial-gradient(1100px 520px at 80% -10%, #1c2632 0%, transparent 62%),
-          var(--ink);
-        color: var(--text);
+          radial-gradient(1000px 460px at 82% -12%, #eef1f6 0%, transparent 60%),
+          var(--paper);
+        color: var(--ink);
         font-family: var(--sans);
         font-size: 14px;
         -webkit-font-smoothing: antialiased;
       }
       .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-      .eyebrow {
-        font-size: 10.5px; font-weight: 700; letter-spacing: .16em;
-        text-transform: uppercase; color: var(--muted);
-      }
+      .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); }
 
-      /* ---- shell ---- */
       .shell { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
-      .tape { border-right: 1px solid var(--line); background: #151c24; display: flex; flex-direction: column; min-height: 0; }
+      .tape { border-right: 1px solid var(--line); background: var(--card); display: flex; flex-direction: column; min-height: 0; }
       .stage { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 
-      /* ---- header ---- */
       header {
-        grid-column: 1 / -1;
-        display: flex; align-items: center; gap: 14px;
-        padding: 14px 22px; border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, #1a232e, #161d26);
+        grid-column: 1 / -1; display: flex; align-items: center; gap: 14px;
+        padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--card);
       }
-      .wordmark { font-weight: 800; letter-spacing: .22em; font-size: 15px; }
-      .wordmark b { color: var(--brass); font-weight: 800; }
-      .live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; }
-      .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(79,178,134,.6); animation: pulse 2.4s infinite; }
-      @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(79,178,134,.5);} 70% { box-shadow: 0 0 0 7px rgba(79,178,134,0);} 100% { box-shadow: 0 0 0 0 rgba(79,178,134,0);} }
+      .wordmark { font-weight: 800; letter-spacing: .2em; font-size: 15px; }
+      .wordmark b { color: var(--brass); }
+      .live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2.4s infinite; }
+      @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(47,133,90,.4);} 70% { box-shadow: 0 0 0 7px rgba(47,133,90,0);} 100% { box-shadow: 0 0 0 0 rgba(47,133,90,0);} }
       header .tagline { color: var(--muted); font-size: 12px; }
       header .spacer { flex: 1; }
       header .key { display: flex; align-items: center; gap: 8px; }
       header .key label { color: var(--muted); font-size: 11px; }
       input {
-        background: #10161d; border: 1px solid var(--line); color: var(--text);
+        background: var(--card); border: 1px solid var(--line-2); color: var(--ink);
         border-radius: 7px; padding: 7px 9px; font: inherit; font-family: var(--mono); font-size: 12.5px;
       }
-      input:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+      input:focus-visible { outline: 2px solid var(--brass-bg); outline-offset: 1px; }
       input.k { width: 132px; }
 
-      /* ---- event tape (the spine) ---- */
       .tape-head { display: flex; align-items: baseline; justify-content: space-between; padding: 13px 16px 9px; border-bottom: 1px solid var(--line); }
-      .tape-head .count { color: var(--brass); font-size: 12px; }
-      .tape-rows { flex: 1; overflow-y: auto; min-height: 0; padding: 6px 0 40px; }
+      .tape-head .count { color: var(--brass); font-size: 12px; font-weight: 600; }
+      .tape-rows { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 0 40px; }
       .tape-empty { color: var(--muted); font-size: 12.5px; padding: 18px 16px; line-height: 1.5; }
       .ev {
-        display: grid; grid-template-columns: 52px 1fr auto; align-items: baseline; gap: 10px;
-        padding: 6px 16px; border-left: 2px solid transparent;
+        display: grid; grid-template-columns: 50px 1fr auto; align-items: baseline; gap: 10px;
+        padding: 6px 16px; border-left: 2px solid transparent; border-bottom: 1px solid #f1f4f7;
         font-family: var(--mono); font-size: 12.5px;
       }
-      .ev .pos { color: var(--brass); }
-      .ev .type { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .ev .stream { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+      .ev .pos { color: var(--brass); font-weight: 600; }
+      .ev .type { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ev .stream { font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
       .ev.s-account .stream { color: var(--green); }
       .ev.s-transfer .stream { color: var(--amber); }
       .ev.s-journal .stream { color: var(--brass); }
-      .ev.flash { animation: flash 1.5s ease-out; }
-      @keyframes flash {
-        0% { border-left-color: var(--brass); background: rgba(201,162,39,.14); }
-        100% { border-left-color: transparent; background: transparent; }
-      }
+      .ev.flash { animation: flash 1.4s ease-out; }
+      @keyframes flash { 0% { border-left-color: var(--brass-bg); background: #fbf3dd; } 100% { border-left-color: transparent; background: transparent; } }
 
-      /* ---- stage sections ---- */
-      .controls { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+      .controls { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; background: var(--card); }
       .field { display: flex; flex-direction: column; gap: 5px; }
-      .field label { color: var(--muted); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; }
+      .field label { color: var(--muted); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
       button {
-        border: 1px solid var(--brass-dim); background: linear-gradient(180deg, #24303c, #1c2530);
-        color: var(--text); font: inherit; font-weight: 600; font-size: 13px;
-        padding: 8px 14px; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--line-2); background: var(--card); color: var(--ink);
+        font: inherit; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
       }
-      button.primary { background: linear-gradient(180deg, #caa22b, #a9861d); color: #1a1405; border-color: #8a6d15; }
-      button.ghost { background: #1a232e; }
-      button:hover { filter: brightness(1.08); }
+      button.primary { background: linear-gradient(180deg, #e2c25c, #cba838); color: #3a2c05; border-color: #b89321; }
+      button:hover { filter: brightness(0.99); box-shadow: 0 1px 0 rgba(27,36,49,.04); }
       button:active { transform: translateY(1px); }
       button:disabled { opacity: .45; cursor: not-allowed; }
-      button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+      button:focus-visible { outline: 2px solid var(--brass-bg); outline-offset: 2px; }
 
       .section { padding: 18px 22px; border-bottom: 1px solid var(--line); }
       .section > .eyebrow { display: block; margin-bottom: 14px; }
 
-      /* saga stage */
-      .saga-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+      .saga-head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
       .saga-id { color: var(--muted); font-size: 12px; }
-      .pill { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); }
-      .pill.completed { color: var(--green); border-color: #2f5a49; background: rgba(79,178,134,.08); }
-      .pill.reconciled, .pill.needs_reconciliation { color: var(--amber); border-color: #6a5320; background: rgba(217,164,65,.08); }
-      .pill.failed { color: var(--red); border-color: #6b3733; background: rgba(192,85,77,.08); }
-      .pill.initiated, .pill.held, .pill.posted { color: var(--amber); border-color: #5a4a22; }
+      .pill { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); text-transform: capitalize; }
+      .pill.completed { color: var(--green); border-color: #bfe0cf; background: #eefaf3; }
+      .pill.reconciled, .pill.needs_reconciliation { color: var(--amber); border-color: #ecd6a6; background: #fdf6e6; }
+      .pill.failed { color: var(--red); border-color: #eec7c3; background: #fcefed; }
+      .pill.initiated, .pill.held, .pill.posted { color: var(--amber); border-color: #ecd6a6; background: #fdf6e6; }
       .stepper { display: flex; }
       .step { flex: 1; position: relative; text-align: center; }
-      .step::before { content: ""; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--line); }
+      .step::before { content: ""; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--line-2); }
       .step:first-child::before { display: none; }
-      .step.reached::before { background: var(--green); }
+      .step.reached::before { background: var(--green-bar); }
       .step.branch-warn.reached::before { background: var(--amber); }
-      .step.branch-err.reached::before { background: var(--red); }
-      .node { position: relative; z-index: 1; width: 22px; height: 22px; margin: 0 auto 9px; border-radius: 50%; background: var(--ink); border: 2px solid var(--line); }
-      .step.done .node { background: var(--green); border-color: var(--green); }
-      .step.current .node { border-color: var(--brass); box-shadow: 0 0 0 5px rgba(201,162,39,.16); animation: ring 1.6s infinite; }
-      @keyframes ring { 0%,100% { box-shadow: 0 0 0 4px rgba(201,162,39,.10);} 50% { box-shadow: 0 0 0 7px rgba(201,162,39,.22);} }
+      .step.branch-err.reached::before { background: var(--red-bar); }
+      .node { position: relative; z-index: 1; width: 22px; height: 22px; margin: 0 auto 9px; border-radius: 50%; background: var(--card); border: 2px solid var(--line-2); }
+      .step.done .node { background: var(--green-bar); border-color: var(--green); }
+      .step.current .node { border-color: var(--brass); box-shadow: 0 0 0 5px rgba(217,182,74,.28); animation: ring 1.5s infinite; }
+      @keyframes ring { 0%,100% { box-shadow: 0 0 0 3px rgba(217,182,74,.18);} 50% { box-shadow: 0 0 0 7px rgba(217,182,74,.34);} }
       .step.branch-warn .node { background: var(--amber); border-color: var(--amber); }
-      .step.branch-err .node { background: var(--red); border-color: var(--red); }
+      .step.branch-err .node { background: var(--red-bar); border-color: var(--red); }
       .step .lbl { font-size: 11.5px; color: var(--muted); }
-      .step.done .lbl, .step.current .lbl { color: var(--text); font-weight: 600; }
+      .step.done .lbl, .step.current .lbl { color: var(--ink); font-weight: 600; }
       .step.branch-warn .lbl { color: var(--amber); font-weight: 600; }
       .step.branch-err .lbl { color: var(--red); font-weight: 600; }
       .saga-empty { color: var(--muted); font-size: 13px; }
-      .resolve { margin-top: 18px; padding: 13px 15px; border: 1px solid #5a4a22; background: rgba(217,164,65,.06); border-radius: 10px; }
-      .resolve p { margin: 0 0 9px; color: #e4c37a; font-size: 12.5px; }
+      .resolve { margin-top: 20px; padding: 13px 15px; border: 1px solid #ecd6a6; background: #fdf7e8; border-radius: 10px; }
+      .resolve p { margin: 0 0 9px; color: #7a5a12; font-size: 12.5px; }
       .resolve .acts { display: flex; gap: 10px; }
 
-      /* accounts + read-side */
-      .cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0; }
+      .cols { display: grid; grid-template-columns: 1.3fr 1fr; }
       .cols > .section:first-child { border-right: 1px solid var(--line); }
       .acct { margin-bottom: 16px; }
       .acct:last-child { margin-bottom: 0; }
       .acct .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
       .acct .who { font-size: 12px; color: var(--muted); }
-      .acct .who b { color: var(--text); font-weight: 600; letter-spacing: .04em; }
+      .acct .who b { color: var(--ink); font-weight: 600; letter-spacing: .03em; }
       .acct .total { font-size: 12.5px; }
-      .bar { height: 22px; border-radius: 6px; background: #10161d; border: 1px solid var(--line); overflow: hidden; display: flex; }
-      .bar .avail { background: linear-gradient(180deg, #57bd90, #3f9068); transition: width .5s ease; }
-      .bar .held { background: linear-gradient(180deg, #cf6a61, #a8453d); transition: width .5s ease; }
+      .bar { height: 22px; border-radius: 6px; background: var(--sub); border: 1px solid var(--line-2); overflow: hidden; display: flex; }
+      .bar .avail { background: linear-gradient(180deg, #57bd90, var(--green-bar)); transition: width .55s ease; }
+      .bar .held { background: linear-gradient(180deg, #d98279, var(--red-bar)); transition: width .55s ease; }
       .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--muted); }
       .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-      .legend .a i { background: var(--green); } .legend .h i { background: var(--red); }
+      .legend .a i { background: var(--green-bar); } .legend .h i { background: var(--red-bar); }
       .readside .metric { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
       .readside .metric:last-child { border-bottom: 0; }
       .readside .k { color: var(--muted); font-size: 12px; }
-      .readside .v { font-family: var(--mono); font-size: 15px; color: var(--brass); }
+      .readside .v { font-family: var(--mono); font-size: 15px; color: var(--brass); font-weight: 600; }
       .readside .note { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 12px; }
 
-      @media (prefers-reduced-motion: reduce) {
-        .ev.flash, .step.current .node, .live .dot { animation: none; }
-      }
+      @media (prefers-reduced-motion: reduce) { .ev.flash, .step.current .node, .live .dot { animation: none; } .bar .avail, .bar .held { transition: none; } }
       @media (max-width: 880px) {
         .shell { grid-template-columns: 1fr; height: auto; }
         .tape { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
@@ -187,7 +172,6 @@
         </span>
       </header>
 
-      <!-- the spine: live append-only event log -->
       <aside class="tape">
         <div class="tape-head">
           <span class="eyebrow">Event log · append-only</span>
@@ -201,61 +185,37 @@
         </div>
       </aside>
 
-      <!-- the stage -->
       <main class="stage">
         <div class="controls">
-          <div class="field">
-            <label>currency</label>
-            <input class="mono" id="cur" value="USD" style="width:80px" />
-          </div>
-          <div class="field">
-            <label>fund source</label>
-            <input class="mono" id="fund" value="1000" style="width:96px" />
-          </div>
+          <div class="field"><label>currency</label><input class="mono" id="cur" value="USD" style="width:80px" /></div>
+          <div class="field"><label>fund source</label><input class="mono" id="fund" value="1000" style="width:96px" /></div>
           <button class="primary" id="seedBtn" onclick="seed()">Seed &amp; fund</button>
-          <div class="field">
-            <label>transfer amount</label>
-            <input class="mono" id="amt" value="400" style="width:96px" />
-          </div>
+          <div class="field"><label>transfer amount</label><input class="mono" id="amt" value="400" style="width:96px" /></div>
           <button id="xferBtn" onclick="transfer()" disabled>Run transfer</button>
-          <button class="ghost" id="freezeBtn" onclick="freezeDest()" disabled>Freeze destination</button>
+          <button id="freezeBtn" onclick="freezeDest()" disabled>Freeze destination</button>
         </div>
 
         <section class="section">
           <span class="eyebrow">Transfer saga · durable, step by step (Temporal)</span>
-          <div id="sagaBody">
-            <p class="saga-empty">Run a transfer to watch the saga hold, post, and settle — each step appends its event to the log on the left.</p>
-          </div>
-          <div class="saga-head" id="sagaHead" hidden>
-            <span class="saga-id mono" id="sagaId"></span>
-            <span id="sagaPill"></span>
-          </div>
+          <div id="sagaBody"><p class="saga-empty">Run a transfer to watch the saga hold, post, and settle — each step appends its event to the log on the left.</p></div>
+          <div class="saga-head" id="sagaHead" hidden><span class="saga-id mono" id="sagaId"></span><span id="sagaPill"></span></div>
           <div class="stepper" id="stepper" hidden></div>
           <div class="resolve" id="resolve" hidden>
             <p>Parked — the source was debited but the destination was never credited. Resolve it:</p>
-            <div class="acts">
-              <button class="primary" onclick="resolve('refund_source')">Refund source</button>
-              <button class="ghost" onclick="resolve('retry_credit')">Retry credit</button>
-            </div>
+            <div class="acts"><button class="primary" onclick="resolve('refund_source')">Refund source</button><button onclick="resolve('retry_credit')">Retry credit</button></div>
           </div>
         </section>
 
         <div class="cols">
           <section class="section">
             <span class="eyebrow">Accounts · available vs held</span>
-            <div id="accounts">
-              <p class="saga-empty">Balances appear once you seed accounts.</p>
-            </div>
+            <div id="accounts"><p class="saga-empty">Balances appear once you seed accounts.</p></div>
           </section>
           <section class="section readside">
             <span class="eyebrow">Read side · tails the same log</span>
             <div class="metric"><span class="k">log head</span><span class="v mono" id="rsHead">#0</span></div>
             <div class="metric"><span class="k">events seen</span><span class="v mono" id="rsCount">0</span></div>
-            <p class="note">
-              Balances are a projection rebuilt from the log; the outbox relay tails the
-              same positions to publish events downstream. Both derive from the one
-              ordered source of truth on the left.
-            </p>
+            <p class="note">Balances are a projection rebuilt from the log; the outbox relay tails the same positions to publish events downstream. Both derive from the one ordered source of truth on the left.</p>
           </section>
         </div>
       </main>
@@ -264,50 +224,50 @@
     <script>
       const $ = (id) => document.getElementById(id);
       const headers = () => ({ "Content-Type": "application/json", "X-Api-Key": $("apiKey").value });
-
       async function api(method, path, body) {
         const res = await fetch(path, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
-        let data = null;
-        try { data = await res.json(); } catch {}
+        let data = null; try { data = await res.json(); } catch {}
         return { ok: res.ok, status: res.status, data };
       }
+      async function bal(id) { const r = await api("GET", `/api/accounts/${id}/balance`); return r.ok ? r.data : null; }
 
-      const state = { src: null, dst: null, cur: "USD", transfer: null, timer: null };
+      const state = { src: null, dst: null, cur: "USD" };
 
-      // ---- live event log (the spine) ----
-      let cursor = 0;
-      let seen = 0;
+      // ---- live event log: fetch, then print rows as a staggered ticker ----
+      let cursor = 0, seen = 0;
       const KNOWN = new Set();
-      function streamClass(t) {
-        if (t === "account") return "s-account";
-        if (t === "transfer") return "s-transfer";
-        if (t === "journal") return "s-journal";
-        return "";
-      }
+      const inbox = [];
+      const streamClass = (t) => ({ account: "s-account", transfer: "s-transfer", journal: "s-journal" }[t] || "");
       async function pollLog() {
         const r = await api("GET", `/api/events?from_position=${cursor}&limit=200`);
-        if (r.ok && Array.isArray(r.data) && r.data.length) {
-          const tape = $("tape");
-          if (KNOWN.size === 0) tape.innerHTML = "";
+        if (r.ok && Array.isArray(r.data)) {
           for (const e of r.data) {
             if (KNOWN.has(e.global_position)) continue;
-            KNOWN.add(e.global_position);
-            cursor = Math.max(cursor, e.global_position);
-            seen += 1;
-            const row = document.createElement("div");
-            row.className = `ev flash ${streamClass(e.stream_type)}`;
-            row.innerHTML =
-              `<span class="pos">#${e.global_position}</span>` +
-              `<span class="type">${e.event_type}</span>` +
-              `<span class="stream">${e.stream_type}</span>`;
-            tape.insertBefore(row, tape.firstChild);
+            KNOWN.add(e.global_position); cursor = Math.max(cursor, e.global_position);
+            inbox.push(e);
           }
-          while (tape.children.length > 80) tape.removeChild(tape.lastChild);
-          $("logHead").textContent = `#${cursor}`;
-          $("rsHead").textContent = `#${cursor}`;
-          $("rsCount").textContent = String(seen);
         }
         setTimeout(pollLog, 650);
+      }
+      function printer() {
+        const n = inbox.length;
+        if (n) {
+          const batch = n > 12 ? 4 : 1;   // catch up fast on a big backlog, else one-by-one
+          const tape = $("tape");
+          if (seen === 0) tape.innerHTML = "";
+          for (let i = 0; i < batch && inbox.length; i++) {
+            const e = inbox.shift(); seen += 1;
+            const row = document.createElement("div");
+            row.className = `ev flash ${streamClass(e.stream_type)}`;
+            row.innerHTML = `<span class="pos">#${e.global_position}</span><span class="type">${e.event_type}</span><span class="stream">${e.stream_type}</span>`;
+            tape.insertBefore(row, tape.firstChild);
+            $("logHead").textContent = `#${e.global_position}`;
+          }
+          while (tape.children.length > 80) tape.removeChild(tape.lastChild);
+          $("rsHead").textContent = $("logHead").textContent;
+          $("rsCount").textContent = String(seen);
+        }
+        setTimeout(printer, n > 12 ? 90 : 300);
       }
 
       // ---- controls ----
@@ -318,38 +278,29 @@
         await api("POST", `/api/accounts/${src}/deposit`, { amount: Number($("fund").value), currency: state.cur });
         const dst = (await api("POST", "/api/accounts", { currency: state.cur })).data.account_id;
         state.src = src; state.dst = dst;
-        $("xferBtn").disabled = false;
-        $("freezeBtn").disabled = false;
-        $("seedBtn").disabled = false;
-        renderAccounts();
+        $("xferBtn").disabled = false; $("freezeBtn").disabled = false; $("seedBtn").disabled = false;
+        showAccounts(await bal(src), await bal(dst));
       }
-
       async function transfer() {
         if (!state.src) return;
-        const r = await api("POST", "/api/transfers", {
-          source_account_id: state.src,
-          destination_account_id: state.dst,
-          amount: Number($("amt").value),
-          currency: state.cur,
-        });
-        if (!r.ok || !r.data.transfer_id) return;
-        watch(r.data.transfer_id);
+        const r = await api("POST", "/api/transfers", { source_account_id: state.src, destination_account_id: state.dst, amount: Number($("amt").value), currency: state.cur });
+        if (r.ok && r.data.transfer_id) watch(r.data.transfer_id);
       }
-
       async function freezeDest() {
         if (!state.dst) return;
         await api("POST", `/api/accounts/${state.dst}/freeze`);
-        $("freezeBtn").disabled = true;
-        $("freezeBtn").textContent = "Destination frozen";
+        $("freezeBtn").disabled = true; $("freezeBtn").textContent = "Destination frozen";
       }
-
       async function resolve(decision) {
-        if (!state.transfer) return;
-        await api("POST", `/api/transfers/${state.transfer}/resolve`, { resolution: decision });
-        watch(state.transfer);
+        if (!play.id) return;
+        await api("POST", `/api/transfers/${play.id}/resolve`, { resolution: decision });
+        play.terminal = false;
+        fetchSaga();
+        if (play.timer) clearTimeout(play.timer);
+        stepTick();
       }
 
-      // ---- saga stage ----
+      // ---- paced saga playback ----
       const TERMINAL = ["completed", "failed", "reconciled"];
       const OUTCOMES = {
         TransferCompleted: { label: "Completed", cls: "done" },
@@ -357,86 +308,117 @@
         TransferParkedForReconciliation: { label: "Needs reconciliation", cls: "branch-warn current" },
         TransferFailed: { label: "Failed", cls: "branch-err done" },
       };
+      const play = { id: null, amount: 0, s0: { available: 0, reserved: 0 }, d0: { available: 0, reserved: 0 }, head: 0, reached: 0, target: 0, outcome: null, status: null, terminal: false, timer: null };
 
-      function watch(id) {
-        if (state.timer) clearTimeout(state.timer);
-        state.transfer = id;
-        $("sagaBody").innerHTML = "";
-        $("sagaHead").hidden = false;
-        $("stepper").hidden = false;
-        $("sagaId").textContent = id;
-        pollSaga(0);
+      async function watch(id) {
+        if (play.timer) clearTimeout(play.timer);
+        play.id = id; play.amount = Number($("amt").value);
+        play.s0 = (await bal(state.src)) || { available: 0, reserved: 0 };
+        play.d0 = (await bal(state.dst)) || { available: 0, reserved: 0 };
+        play.head = 0; play.reached = 0; play.target = 0; play.outcome = null; play.status = "initiated"; play.terminal = false;
+        $("sagaBody").innerHTML = ""; $("sagaHead").hidden = false; $("stepper").hidden = false; $("sagaId").textContent = id;
+        fetchSaga();
+        stepTick();
       }
 
-      async function pollSaga(tries) {
-        if (!state.transfer) return;
+      async function fetchSaga() {
+        if (!play.id) return;
         const [status, events] = await Promise.all([
-          api("GET", `/api/transfers/${state.transfer}`),
-          api("GET", `/api/transfers/${state.transfer}/events`),
+          api("GET", `/api/transfers/${play.id}`),
+          api("GET", `/api/transfers/${play.id}/events`),
         ]);
-        const st = status.ok ? status.data.status : null;
-        const evs = Array.isArray(events.data) ? events.data : [];
-        if (st) $("sagaPill").innerHTML = `<span class="pill ${st}">${st.replace(/_/g, " ")}</span>`;
-        renderStepper(evs);
-        $("resolve").hidden = st !== "needs_reconciliation";
-        renderAccounts();
-
-        if (st && TERMINAL.includes(st)) return;
-        const delay = st === "needs_reconciliation" ? 1500 : 350;
-        const cap = st === "needs_reconciliation" ? 400 : 80;
-        if (tries < cap) state.timer = setTimeout(() => pollSaga(tries + 1), delay);
-      }
-
-      function renderStepper(events) {
-        const types = new Set(events.map((e) => e.event_type));
+        // Just after start the stream may not exist yet (404) — data is a problem
+        // body, not an array. Guard, and keep polling until milestones appear.
+        const evData = Array.isArray(events.data) ? events.data : [];
+        const types = new Set(evData.map((e) => e.event_type));
+        let reached = 0;
+        if (types.has("TransferInitiated")) reached = 1;
+        if (types.has("TransferHeld")) reached = 2;
+        if (types.has("TransferPosted")) reached = 3;
         const outcomeType = ["TransferCompleted", "TransferReconciled", "TransferParkedForReconciliation", "TransferFailed"].find((t) => types.has(t));
-        const outcome = outcomeType ? OUTCOMES[outcomeType] : { label: "Completed", cls: "pending" };
-        const rail = [
-          { label: "Initiated", done: types.has("TransferInitiated") },
-          { label: "Held", done: types.has("TransferHeld") },
-          { label: "Posted", done: types.has("TransferPosted") },
-        ];
-        const currentIdx = outcomeType ? -1 : rail.findIndex((s) => !s.done);
-        let html = "";
-        rail.forEach((s, i) => {
-          const cls = [s.done ? "done reached" : "pending", i === currentIdx ? "current reached" : ""].join(" ");
-          html += node(cls, s.label);
-        });
-        html += node(outcome.cls + " reached", outcome.label);
-        $("stepper").innerHTML = html;
-      }
-      function node(cls, label) {
-        return `<div class="step ${cls}"><span class="node"></span><span class="lbl">${label}</span></div>`;
+        play.reached = Math.max(play.reached, reached);   // only actually-reached rail steps
+        play.outcome = outcomeType ? OUTCOMES[outcomeType] : null;
+        play.target = play.reached + (play.outcome ? 1 : 0);
+        play.status = status.ok && status.data && status.data.status ? status.data.status : play.status;
+        const done = play.status && TERMINAL.includes(play.status);
+        if (!done) setTimeout(fetchSaga, play.status === "needs_reconciliation" ? 1400 : 350);
       }
 
-      // ---- accounts ----
-      async function renderAccounts() {
-        if (!state.src) return;
-        const [s, d] = await Promise.all([
-          api("GET", `/api/accounts/${state.src}/balance`),
-          api("GET", `/api/accounts/${state.dst}/balance`),
-        ]);
-        const box = $("accounts");
-        box.innerHTML = "";
-        box.appendChild(acctEl("Source", state.src, s.ok ? s.data : null));
-        box.appendChild(acctEl("Destination", state.dst, d.ok ? d.data : null));
+      function stepTick() {
+        if (play.head < play.target) play.head += 1;
+        renderStage();
+        const outcomeShown = play.head > play.reached && play.outcome;
+        const parked = outcomeShown && play.status === "needs_reconciliation";
+        const finished = play.head >= play.target && play.status && TERMINAL.includes(play.status);
+        if (finished) { play.terminal = true; reconcileBalances(); return; }
+        play.timer = setTimeout(stepTick, parked ? 900 : 850);
       }
-      function acctEl(who, id, bal) {
-        const el = document.createElement("div");
-        el.className = "acct";
-        const avail = bal ? bal.available : 0;
-        const held = bal ? bal.reserved : 0;
-        const total = Math.max(avail + held, 1);
+
+      function stageStatus() {
+        if (play.head > play.reached && play.outcome) return play.status || "posted";
+        return ["initiated", "initiated", "held", "posted"][Math.min(play.head, 3)];
+      }
+      function renderStage() {
+        const st = stageStatus();
+        $("sagaPill").innerHTML = `<span class="pill ${st}">${st.replace(/_/g, " ")}</span>`;
+        const rail = [
+          { label: "Initiated", m: 1 }, { label: "Held", m: 2 }, { label: "Posted", m: 3 },
+        ];
+        let html = "";
+        for (const s of rail) {
+          let cls = "pending";
+          if (s.m <= play.reached) cls = play.head > s.m ? "done reached" : play.head === s.m ? "current reached" : "pending";
+          html += node(cls, s.label);
+        }
+        const outcomeShown = play.head > play.reached && play.outcome;
+        html += outcomeShown ? node(play.outcome.cls + " reached", play.outcome.label) : node("pending", "Settle");
+        $("stepper").innerHTML = html;
+        $("resolve").hidden = !(outcomeShown && play.status === "needs_reconciliation");
+        renderAccountsFor();
+      }
+      const node = (cls, label) => `<div class="step ${cls}"><span class="node"></span><span class="lbl">${label}</span></div>`;
+
+      function renderAccountsFor() {
+        if (!state.src) return;
+        const amt = play.amount, st = play.status;
+        let s = { ...play.s0 }, d = { ...play.d0 };
+        const heldShown = play.head >= 2 && play.reached >= 2;   // only if the hold really happened
+        const outcomeShown = play.head > play.reached;
+        if (heldShown) s = { available: play.s0.available - amt, reserved: play.s0.reserved + amt };
+        if (outcomeShown) {
+          if (st === "completed") { s = { available: play.s0.available - amt, reserved: play.s0.reserved }; d = { available: play.d0.available + amt, reserved: play.d0.reserved }; }
+          else if (st === "needs_reconciliation") { s = { available: play.s0.available - amt, reserved: play.s0.reserved }; d = { ...play.d0 }; }
+          // failed / reconciled: balances return to the starting point (no net movement)
+        }
+        showAccounts(s, d);
+      }
+      async function reconcileBalances() {
+        // settle any drift against the authoritative projection
+        showAccounts(await bal(state.src), await bal(state.dst));
+      }
+
+      // ---- accounts render ----
+      function showAccounts(s, d) {
+        const box = $("accounts"); box.innerHTML = "";
+        const t = (b) => Math.max((b && b.available) || 0, 0) + Math.max((b && b.reserved) || 0, 0);
+        // Shared scale so bar lengths are comparable across accounts (200 vs 800).
+        const scale = Math.max(t(s), t(d), 1);
+        box.appendChild(acctEl("Source", state.src, s, scale));
+        box.appendChild(acctEl("Destination", state.dst, d, scale));
+      }
+      function acctEl(who, id, bal, scale) {
+        const el = document.createElement("div"); el.className = "acct";
+        const avail = Math.max(bal ? bal.available : 0, 0), held = Math.max(bal ? bal.reserved : 0, 0);
         el.innerHTML =
-          `<div class="top"><span class="who"><b>${who}</b> · <span class="mono">${id.slice(0, 8)}</span></span>` +
+          `<div class="top"><span class="who"><b>${who}</b> · <span class="mono">${(id || "").slice(0, 8)}</span></span>` +
           `<span class="total mono">${avail + held} ${state.cur}</span></div>` +
-          `<div class="bar"><div class="avail" style="width:${(avail / total) * 100}%"></div>` +
-          `<div class="held" style="width:${(held / total) * 100}%"></div></div>` +
+          `<div class="bar"><div class="avail" style="width:${(avail / scale) * 100}%"></div><div class="held" style="width:${(held / scale) * 100}%"></div></div>` +
           `<div class="legend"><span class="a"><i></i>available ${avail}</span><span class="h"><i></i>held ${held}</span></div>`;
         return el;
       }
 
       pollLog();
+      printer();
     </script>
   </body>
 </html>

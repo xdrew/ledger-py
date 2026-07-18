@@ -74,5 +74,42 @@ services:
     ports:
       - "3001:3000" # http://localhost:3001
 
+  # --- Application services (opt-in): `docker compose --profile app up --build` ---
+  api:
+    profiles: ["app"]
+    build: .
+    command: ["ledger-api"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment: &app_env
+      LEDGER_DATABASE_URL: postgresql://ledger:ledger@postgres:5432/ledger
+      LEDGER_TEMPORAL_ADDRESS: temporal:7233
+      LEDGER_API_KEY: dev-local-key
+    ports:
+      - "8000:8000"
+
+  worker:
+    profiles: ["app"]
+    build: .
+    command: ["ledger-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment: *app_env
+
+  relay:
+    profiles: ["app"]
+    build: .
+    command: ["ledger-relay"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app_env
+
 volumes:
   pgdata:

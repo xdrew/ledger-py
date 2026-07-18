@@ -435,7 +435,7 @@
         const el = document.createElement("div"); el.className = "acct";
         const avail = Math.max(bal ? bal.available : 0, 0), held = Math.max(bal ? bal.reserved : 0, 0);
         el.innerHTML =
-          `<div class="top"><span class="who"><b>${who}</b> · <span class="mono">${(id || "").slice(0, 8)}</span></span>` +
+          `<div class="top"><span class="who"><b>${who}</b> · <span class="mono">${(id || "").slice(0, 4)}…${(id || "").slice(-6)}</span></span>` +
           `<span class="total mono">${avail + held} ${state.cur}</span></div>` +
           `<div class="bar"><div class="avail" style="width:${(avail / scale) * 100}%"></div><div class="held" style="width:${(held / scale) * 100}%"></div></div>` +
           `<div class="legend"><span class="a"><i></i>available ${avail}</span><span class="h"><i></i>held ${held}</span></div>`;
@@ -482,6 +482,10 @@
         const rejected = [oa, ob].filter((o) => o.status === "failed").length;
         const sb = await bal(src);
         const remaining = sb ? sb.available + sb.reserved : 0;
+        // Reflect the demo's own accounts below, so the source visibly ends debited
+        // once (100 → 0) and the destination holds the one payment that settled.
+        state.src = src; state.dst = dst; state.cur = cur;
+        showAccounts(sb, await bal(dst));
         const ok = settled === 1 && rejected === 1;
         verdict.hidden = false;
         verdict.className = "ds-verdict " + (ok ? "ok" : "warn");

@@ -10,6 +10,7 @@ from ledger.config.settings import Settings, get_settings
 from ledger.eventstore.factory import open_event_store
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.store import EventStore
+from ledger.projections.read_models_service import ReadModels, build_read_models
 from ledger.temporal.client import connect
 from ledger.temporal.dependencies import LedgerRepositories, build_repositories
 
@@ -21,6 +22,7 @@ class AppContext:
     repositories: LedgerRepositories
     gateway: TransferGateway
     idempotency: IdempotencyStore
+    read_models: ReadModels
 
     async def aclose(self) -> None:
         """Release owned infrastructure resources (the event-store pool)."""
@@ -41,6 +43,7 @@ async def build_runtime_context(settings: Settings) -> AppContext:
         repositories=repositories,
         gateway=gateway,
         idempotency=IdempotencyStore(),
+        read_models=build_read_models(store, registry),
     )
 
 

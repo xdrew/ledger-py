@@ -26,10 +26,6 @@ router = APIRouter(
 
 Context = Annotated[AppContext, Depends(get_context)]
 
-_AMOUNT_EVENTS = frozenset(
-    {"FundsDeposited", "FundsHeld", "HoldReleased", "AccountDebited", "AccountCredited"}
-)
-
 
 def _account_response(account_id: AccountId, account: Account) -> AccountResponse:
     return AccountResponse(
@@ -94,25 +90,36 @@ async def get_account(account_id: AccountId, context: Context) -> AccountRespons
     return _account_response(account_id, account)
 
 
+@router.get("/{account_id}/balance")
+async def get_balance(account_id: AccountId, context: Context) -> AccountResponse:
+    """Balance served from the projection read model (catches up on read)."""
+    view = await context.read_models.balance_of(account_id)
+    if view is None:
+        raise NotFound(f"account {account_id} not found")
+    return AccountResponse(
+        account_id=account_id,
+        currency=view.currency,
+        status=view.status,
+        available=view.available,
+        reserved=view.reserved,
+        total=view.total,
+    )
+
+
 @router.get("/{account_id}/statement")
 async def get_statement(account_id: AccountId, context: Context) -> list[StatementLineResponse]:
     await _load_or_404(context, account_id)
-    events = await context.store.load_stream(stream_type=ACCOUNT_STREAM, stream_id=account_id)
-    lines: list[StatementLineResponse] = []
-    for event in events:
-        if event.event_type not in _AMOUNT_EVENTS:
-            continue
-        amount = event.payload["amount"]
-        lines.append(
-            StatementLineResponse(
-                global_position=event.global_position,
-                kind=event.event_type,
-                amount=amount["amount"],
-                currency=amount["currency"],
-                occurred_at=event.occurred_at,
-            )
+    lines = await context.read_models.statement_of(account_id)
+    return [
+        StatementLineResponse(
+            global_position=line.global_position,
+            kind=line.kind,
+            amount=line.amount,
+            currency=line.currency,
+            occurred_at=line.occurred_at,
         )
-    return lines
+        for line in lines
+    ]
 
 
 @router.get("/{account_id}/events")

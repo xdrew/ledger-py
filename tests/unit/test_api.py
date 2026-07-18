@@ -23,6 +23,7 @@ from ledger.domain.transfers.transfer import Transfer
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.store import ConcurrencyConflict
+from ledger.projections.read_models_service import build_read_models
 from ledger.temporal.dependencies import build_repositories
 from ledger.temporal.messages import ReconciliationResolution, TransferInput
 
@@ -52,6 +53,7 @@ def context() -> tuple[AppContext, FakeGateway]:
         repositories=build_repositories(store, registry),
         gateway=gateway,
         idempotency=IdempotencyStore(),
+        read_models=build_read_models(store, registry),
     )
     return ctx, gateway
 
@@ -130,6 +132,28 @@ class TestAccounts:
         response = client.get(f"/api/accounts/{new_transfer_id()}", headers=HEADERS)
         assert response.status_code == 404
         assert response.json()["code"] == "not_found"
+
+    def test_balance_and_statement_served_from_projection(self, client: TestClient) -> None:
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        client.post(
+            f"/api/accounts/{account_id}/deposit",
+            json={"amount": 500, "currency": "USD"},
+            headers=HEADERS,
+        )
+        balance = client.get(f"/api/accounts/{account_id}/balance", headers=HEADERS)
+        assert balance.status_code == 200
+        assert balance.json()["available"] == 500  # projection caught up on read
+        assert balance.json()["total"] == 500
+
+        statement = client.get(f"/api/accounts/{account_id}/statement", headers=HEADERS)
+        assert [line["kind"] for line in statement.json()] == ["FundsDeposited"]
+        assert statement.json()[0]["amount"] == 500
+
+    def test_projection_balance_unknown_is_404(self, client: TestClient) -> None:
+        response = client.get(f"/api/accounts/{new_transfer_id()}/balance", headers=HEADERS)
+        assert response.status_code == 404
 
     def test_concurrency_conflict_is_409_problem_json(
         self,
@@ -337,6 +361,7 @@ def _ctx_with(store: Any) -> AppContext:
         repositories=build_repositories(mem, registry),
         gateway=FakeGateway(),
         idempotency=IdempotencyStore(),
+        read_models=build_read_models(mem, registry),
     )
 
 
@@ -420,6 +445,7 @@ class TestIdempotencyConcurrency:
             repositories=build_repositories(store, registry),
             gateway=BlockingGateway(),
             idempotency=IdempotencyStore(),
+            read_models=build_read_models(store, registry),
         )
         app = create_app()
         app.state.context = ctx

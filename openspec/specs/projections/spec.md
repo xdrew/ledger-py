@@ -6,9 +6,7 @@ The CQRS read side. A projection runner tails the global event log from a durabl
 checkpoint and feeds each event to projectors that maintain read models — account
 balances and an ordered account statement. Projectors are replay-safe, so read models
 are rebuildable from the event store.
-
 ## Requirements
-
 ### Requirement: Maintain an account balances read model
 
 The system SHALL project account events into an account-balances read model holding,
@@ -82,3 +80,22 @@ determine the projection lag — the number of unprocessed events — so lag is 
 - **WHEN** new events are appended that the runner has not yet processed
 - **THEN** the difference between the latest global position and the checkpoint equals
   the number of those unprocessed events
+
+### Requirement: Account reads are served from the projections
+
+The system SHALL serve account balance and statement reads from the projection read
+models rather than from the write-side aggregate or a raw event-stream scan. Before
+serving, the projections SHALL catch up to the latest event in the global log so a
+read reflects all events that occurred before it (read-your-writes).
+
+#### Scenario: Balance read reflects prior activity
+
+- **WHEN** an account is opened and funded and its projection-backed balance is read
+- **THEN** the returned balance reflects those events after the projection catches up
+
+#### Scenario: Statement read is served from the projection
+
+- **WHEN** an account with several balance-moving events has its statement read
+- **THEN** the statement is produced from the projection read model, listing the entries
+  in global-position order
+

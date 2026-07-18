@@ -34,12 +34,16 @@ class FakeGateway:
     def __init__(self) -> None:
         self.started: list[TransferInput] = []
         self.resolved: list[tuple[UUID, ReconciliationResolution]] = []
+        self.healthy = True
 
     async def start(self, data: TransferInput) -> None:
         self.started.append(data)
 
     async def resolve(self, transfer_id: UUID, decision: ReconciliationResolution) -> None:
         self.resolved.append((transfer_id, decision))
+
+    async def check_health(self) -> bool:
+        return self.healthy
 
 
 @pytest.fixture
@@ -88,6 +92,15 @@ class TestAuth:
         response = client.get("/readyz")
         assert response.status_code == 200
         assert response.json()["status"] == "ready"
+
+    def test_readyz_not_ready_when_temporal_unhealthy(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        _, gateway = context
+        gateway.healthy = False
+        response = client.get("/readyz")
+        assert response.status_code == 503
+        assert response.json()["status"] == "not_ready"
 
     def test_playground_served_at_root(self, client: TestClient) -> None:
         response = client.get("/")
@@ -163,6 +176,23 @@ class TestAccounts:
         response = client.get(f"/api/accounts/{new_transfer_id()}", headers=HEADERS)
         assert response.status_code == 404
         assert response.json()["code"] == "not_found"
+
+    def test_events_are_paginated(self, client: TestClient) -> None:
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        client.post(
+            f"/api/accounts/{account_id}/deposit",
+            json={"amount": 100, "currency": "USD"},
+            headers=HEADERS,
+        )
+        # Stream is [AccountOpened, FundsDeposited]; limit/offset window it.
+        first = client.get(f"/api/accounts/{account_id}/events?limit=1", headers=HEADERS).json()
+        assert [e["event_type"] for e in first] == ["AccountOpened"]
+        second = client.get(
+            f"/api/accounts/{account_id}/events?limit=1&offset=1", headers=HEADERS
+        ).json()
+        assert [e["event_type"] for e in second] == ["FundsDeposited"]
 
     def test_balance_and_statement_served_from_projection(self, client: TestClient) -> None:
         account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
@@ -521,6 +551,9 @@ class TestIdempotencyConcurrency:
 
             async def resolve(self, transfer_id: UUID, decision: ReconciliationResolution) -> None:
                 raise AssertionError("resolve not expected in this test")
+
+            async def check_health(self) -> bool:
+                return True
 
         ctx = AppContext(
             settings=get_settings(),

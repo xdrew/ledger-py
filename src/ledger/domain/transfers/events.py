@@ -25,6 +25,8 @@ class TransferInitiated(DomainEvent):
     source_account_id: AccountId
     destination_account_id: AccountId
     amount: Money
+    # Intentional forward-scaffolding for the deferred "reversal of a completed
+    # transfer" feature (see project.md → Deferred); unset until that lands.
     reversal_of: TransferId | None = None
 
 

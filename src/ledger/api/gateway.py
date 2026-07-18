@@ -21,6 +21,8 @@ class TransferGateway(Protocol):
         self, transfer_id: TransferId, decision: ReconciliationResolution
     ) -> None: ...
 
+    async def check_health(self) -> bool: ...
+
 
 class TemporalTransferGateway:
     def __init__(self, client: Client, task_queue: str) -> None:
@@ -38,3 +40,7 @@ class TemporalTransferGateway:
     async def resolve(self, transfer_id: TransferId, decision: ReconciliationResolution) -> None:
         handle = self._client.get_workflow_handle(f"transfer-{transfer_id}")
         await handle.signal(TransferWorkflow.resolve_reconciliation, decision)
+
+    async def check_health(self) -> bool:
+        """True if Temporal answers its health check (used by readiness)."""
+        return await self._client.service_client.check_health()

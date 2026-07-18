@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 
 from ledger.api.auth import require_api_key
@@ -145,8 +145,13 @@ async def get_transfer(transfer_id: TransferId, context: Context) -> TransferRes
 
 
 @router.get("/{transfer_id}/events")
-async def get_transfer_events(transfer_id: TransferId, context: Context) -> list[EventResponse]:
+async def get_transfer_events(
+    transfer_id: TransferId,
+    context: Context,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[EventResponse]:
     events = await context.store.load_stream(stream_type=TRANSFER_STREAM, stream_id=transfer_id)
     if not events:
         raise NotFound(f"transfer {transfer_id} not found")
-    return [_event_response(event) for event in events]
+    return [_event_response(event) for event in events[offset : offset + limit]]

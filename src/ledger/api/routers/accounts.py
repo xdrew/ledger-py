@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 
 from ledger.api.auth import require_api_key
@@ -181,7 +181,12 @@ async def get_balance(account_id: AccountId, context: Context) -> AccountRespons
 
 
 @router.get("/{account_id}/statement")
-async def get_statement(account_id: AccountId, context: Context) -> list[StatementLineResponse]:
+async def get_statement(
+    account_id: AccountId,
+    context: Context,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[StatementLineResponse]:
     await _load_or_404(context, account_id)
     lines = await context.read_models.statement_of(account_id)
     return [
@@ -192,12 +197,17 @@ async def get_statement(account_id: AccountId, context: Context) -> list[Stateme
             currency=line.currency,
             occurred_at=line.occurred_at,
         )
-        for line in lines
+        for line in lines[offset : offset + limit]
     ]
 
 
 @router.get("/{account_id}/events")
-async def get_events(account_id: AccountId, context: Context) -> list[EventResponse]:
+async def get_events(
+    account_id: AccountId,
+    context: Context,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[EventResponse]:
     await _load_or_404(context, account_id)
     events = await context.store.load_stream(stream_type=ACCOUNT_STREAM, stream_id=account_id)
-    return [_event_response(event) for event in events]
+    return [_event_response(event) for event in events[offset : offset + limit]]

@@ -30,7 +30,12 @@ class AppContext:
     read_models: ReadModels
 
     async def aclose(self) -> None:
-        """Release owned infrastructure resources (the event-store pool)."""
+        """Release owned infrastructure resources (the event-store pool).
+
+        The Temporal client is not closed here: ``temporalio.Client`` exposes no
+        ``close``/``aclose`` — its connection is process-scoped and released on exit,
+        so there is nothing to release.
+        """
         close = getattr(self.store, "aclose", None)
         if close is not None:
             await close()

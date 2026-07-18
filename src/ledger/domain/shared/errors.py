@@ -44,6 +44,10 @@ class UnknownAccount(DomainError):
     code = "unknown_account"
 
 
+class SameAccountTransfer(DomainError):
+    code = "same_account_transfer"
+
+
 class AccountNotEmpty(DomainError):
     code = "account_not_empty"
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from ledger.domain.shared.errors import InvalidTransition
+from ledger.domain.shared.errors import InvalidTransition, SameAccountTransfer
 from ledger.domain.shared.identifiers import (
     new_account_id,
     new_journal_entry_id,
@@ -30,6 +30,11 @@ class TestTransferStateMachine:
         transfer = _initiated()
         assert transfer.status is TransferStatus.INITIATED
         assert transfer.amount == usd(500)
+
+    def test_self_transfer_is_rejected(self) -> None:
+        account = new_account_id()
+        with pytest.raises(SameAccountTransfer):
+            Transfer.initiate(new_transfer_id(), account, account, usd(100))
 
     def test_happy_progression(self) -> None:
         transfer = _initiated()

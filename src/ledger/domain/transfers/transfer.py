@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Self
 
 from ledger.domain.shared.aggregate import AggregateRoot
-from ledger.domain.shared.errors import InvalidTransition
+from ledger.domain.shared.errors import InvalidTransition, SameAccountTransfer
 from ledger.domain.shared.identifiers import AccountId, JournalEntryId, TransferId
 from ledger.domain.shared.money import Money
 from ledger.domain.transfers.events import (
@@ -65,6 +65,8 @@ class Transfer(AggregateRoot[TransferEvent]):
         reversal_of: TransferId | None = None,
     ) -> Self:
         amount.assert_positive()
+        if source_account_id == destination_account_id:
+            raise SameAccountTransfer("source and destination must be different accounts")
         transfer = cls()
         transfer.transfer_id = transfer_id
         transfer._record(

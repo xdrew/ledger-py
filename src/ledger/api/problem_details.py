@@ -15,6 +15,7 @@ _STATUS_BY_CODE: dict[str, int] = {
     "account_not_active": 409,
     "invalid_transition": 409,
     "account_not_empty": 409,
+    "same_account_transfer": 422,
     "unknown_account": 404,
     "not_found": 404,
     "concurrency_conflict": 409,

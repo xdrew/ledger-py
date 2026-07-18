@@ -80,6 +80,7 @@ class TransferWorkflow:
         )
 
         holding = False
+        posted = False
         try:
             await workflow.execute_activity_method(
                 TransferActivities.hold_funds,
@@ -97,6 +98,7 @@ class TransferWorkflow:
                 retry_policy=_DEFAULT_RETRY,
             )
             self._status = TransferStatus.POSTED
+            posted = True
 
             await workflow.execute_activity_method(
                 TransferActivities.settle_debit,
@@ -139,6 +141,14 @@ class TransferWorkflow:
             if holding:
                 await workflow.execute_activity_method(
                     TransferActivities.release_hold,
+                    data,
+                    start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                    retry_policy=_DEFAULT_RETRY,
+                )
+            if posted:
+                # Reverse the already-posted journal entry so the ledger nets to zero.
+                await workflow.execute_activity_method(
+                    TransferActivities.reverse_journal,
                     data,
                     start_to_close_timeout=_ACTIVITY_TIMEOUT,
                     retry_policy=_DEFAULT_RETRY,

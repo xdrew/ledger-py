@@ -19,8 +19,10 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from ledger.domain.accounts.account import Account
+from ledger.domain.ledger.leg import LegDirection
 from ledger.domain.shared.identifiers import new_account_id, new_transfer_id
 from ledger.domain.shared.money import Money
+from ledger.domain.transfers.operations import journal_entry_id_for, journal_reversal_id_for
 from ledger.domain.transfers.transfer import TransferStatus
 from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
@@ -140,6 +142,64 @@ class TestTransferSaga:
         assert reloaded_source.available == usd(600)
         assert reloaded_source.reserved == usd(0)
         assert reloaded_dest.available == usd(400)
+
+    async def test_debit_failure_after_posting_reverses_the_journal(
+        self, env: WorkflowEnvironment
+    ) -> None:
+        repos = _repositories()
+        source = await _open_account(repos, deposit=1000)
+        destination = await _open_account(repos)
+        assert source.account_id is not None
+        assert destination.account_id is not None
+
+        acts = TransferActivities(repos.accounts, repos.journals, repos.transfers)
+
+        @activity.defn(name="settle_debit")
+        async def failing_settle_debit(data: TransferInput) -> None:
+            raise ApplicationError(
+                "source frozen after hold", type="account_not_active", non_retryable=True
+            )
+
+        activities: list[Callable[..., Any]] = [
+            acts.record_initiated,
+            acts.hold_funds,
+            acts.post_journal,
+            acts.reverse_journal,
+            failing_settle_debit,
+            acts.settle_credit,
+            acts.refund_source,
+            acts.release_hold,
+            acts.fail_transfer,
+            acts.park_transfer,
+        ]
+        data = TransferInput(
+            transfer_id=new_transfer_id(),
+            source_account_id=source.account_id,
+            destination_account_id=destination.account_id,
+            amount=usd(400),
+        )
+        result = await _run(env, repos, data, activities)
+
+        assert result.status is TransferStatus.FAILED
+
+        # Hold released → source untouched, destination never credited.
+        reloaded_source = await repos.accounts.load(source.account_id)
+        reloaded_dest = await repos.accounts.load(destination.account_id)
+        assert reloaded_source is not None and reloaded_dest is not None
+        assert reloaded_source.available == usd(1000)
+        assert reloaded_source.reserved == usd(0)
+        assert reloaded_dest.available == usd(0)
+
+        # The posted entry is reversed so the ledger nets to zero for this transfer.
+        original = await repos.journals.load(journal_entry_id_for(data.transfer_id))
+        reversal = await repos.journals.load(journal_reversal_id_for(data.transfer_id))
+        assert original is not None and reversal is not None
+        original_dirs = {(leg.account_id, leg.direction) for leg in original.legs}
+        reversal_dirs = {(leg.account_id, leg.direction) for leg in reversal.legs}
+        assert (source.account_id, LegDirection.DEBIT) in original_dirs
+        assert (source.account_id, LegDirection.CREDIT) in reversal_dirs
+        assert (destination.account_id, LegDirection.CREDIT) in original_dirs
+        assert (destination.account_id, LegDirection.DEBIT) in reversal_dirs
 
     async def test_insufficient_funds_fails_with_no_movement(
         self, env: WorkflowEnvironment

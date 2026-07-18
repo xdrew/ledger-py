@@ -17,7 +17,7 @@ from temporalio.exceptions import ApplicationError
 
 from ledger.domain.accounts.account import Account
 from ledger.domain.ledger.journal_entry import JournalEntry
-from ledger.domain.ledger.leg import Leg
+from ledger.domain.ledger.leg import Leg, LegDirection
 from ledger.domain.ledger.posting_service import (
     AccountSnapshot,
     JournalPostingService,
@@ -33,7 +33,11 @@ from ledger.domain.shared.errors import (
     UnknownAccount,
 )
 from ledger.domain.shared.identifiers import AccountId, TransferId
-from ledger.domain.transfers.operations import journal_entry_id_for, operation_id
+from ledger.domain.transfers.operations import (
+    journal_entry_id_for,
+    journal_reversal_id_for,
+    operation_id,
+)
 from ledger.domain.transfers.transfer import Transfer, TransferStatus
 from ledger.eventstore.records import EventMetadata
 from ledger.eventstore.repository import EventSourcedRepository
@@ -50,6 +54,9 @@ def _terminal(err: DomainError) -> ApplicationError:
 def _meta(transfer_id: TransferId, traceparent: str | None = None) -> EventMetadata:
     """Envelope tying a transfer's cross-stream events together and carrying trace."""
     return EventMetadata(correlation_id=transfer_id, traceparent=traceparent)
+
+
+_OPPOSITE = {LegDirection.DEBIT: LegDirection.CREDIT, LegDirection.CREDIT: LegDirection.DEBIT}
 
 
 class _RepositoryStatusReader:
@@ -143,6 +150,30 @@ class TransferActivities:
                 data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
             )
         return str(entry_id)
+
+    @activity.defn
+    async def reverse_journal(self, data: TransferInput) -> None:
+        """Compensation: reverse the posted journal entry so a failed transfer nets to zero.
+
+        Posts a new entry with the original legs' directions swapped, keyed by a
+        deterministic reversal id (idempotent). Posted directly — a reversal must go
+        through even if an account has since been frozen — so it does not use the
+        account-status-checking posting service.
+        """
+        reversal_id = journal_reversal_id_for(data.transfer_id)
+        if await self.journals.load(reversal_id) is not None:
+            return
+        original = await self.journals.load(journal_entry_id_for(data.transfer_id))
+        if original is None:
+            return
+        reversed_legs = [
+            Leg(account_id=leg.account_id, direction=_OPPOSITE[leg.direction], amount=leg.amount)
+            for leg in original.legs
+        ]
+        entry = JournalEntry.post(
+            reversal_id, reversed_legs, reference=f"reversal of {data.transfer_id}"
+        )
+        await self.journals.save(reversal_id, entry, _meta(data.transfer_id, data.traceparent))
 
     @activity.defn
     async def settle_debit(self, data: TransferInput) -> None:
@@ -243,6 +274,7 @@ class TransferActivities:
             self.record_initiated,
             self.hold_funds,
             self.post_journal,
+            self.reverse_journal,
             self.settle_debit,
             self.settle_credit,
             self.refund_source,

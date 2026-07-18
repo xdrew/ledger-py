@@ -21,3 +21,8 @@ def operation_id(transfer_id: TransferId, step: str) -> uuid.UUID:
 
 def journal_entry_id_for(transfer_id: TransferId) -> JournalEntryId:
     return uuid.uuid5(_NAMESPACE, f"{transfer_id}:journal")
+
+
+def journal_reversal_id_for(transfer_id: TransferId) -> JournalEntryId:
+    """Id of the reversing entry that nets out the original on compensation."""
+    return uuid.uuid5(_NAMESPACE, f"{transfer_id}:journal-reversal")

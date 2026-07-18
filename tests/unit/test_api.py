@@ -115,6 +115,37 @@ class TestAccounts:
         assert fetched.status_code == 200
         assert fetched.json()["total"] == 1000
 
+    def test_deposit_idempotency_key_credits_once(self, client: TestClient) -> None:
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        headers = {**HEADERS, "Idempotency-Key": "dep-1"}
+        body = {"amount": 500, "currency": "USD"}
+        first = client.post(f"/api/accounts/{account_id}/deposit", json=body, headers=headers)
+        second = client.post(f"/api/accounts/{account_id}/deposit", json=body, headers=headers)
+        assert first.json()["available"] == 500
+        assert second.json()["available"] == 500  # replayed, not credited again
+
+    def test_deposit_same_key_different_amount_is_422(self, client: TestClient) -> None:
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        headers = {**HEADERS, "Idempotency-Key": "dep-2"}
+        client.post(
+            f"/api/accounts/{account_id}/deposit",
+            json={"amount": 500, "currency": "USD"},
+            headers=headers,
+        )
+        mismatch = client.post(
+            f"/api/accounts/{account_id}/deposit",
+            json={"amount": 999, "currency": "USD"},
+            headers=headers,
+        )
+        assert mismatch.status_code == 422
+        assert mismatch.json()["code"] == "idempotency_key_reused"
+        balance = client.get(f"/api/accounts/{account_id}/balance", headers=HEADERS)
+        assert balance.json()["available"] == 500  # the mismatched deposit did nothing
+
     def test_currency_mismatch_is_problem_json(self, client: TestClient) -> None:
         account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
             "account_id"

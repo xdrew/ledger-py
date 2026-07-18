@@ -1,11 +1,16 @@
 """Account endpoints: open, deposit, read balance / statement / events."""
 
+import hashlib
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
+from fastapi.responses import JSONResponse
 
 from ledger.api.auth import require_api_key
 from ledger.api.context import AppContext, get_context
+from ledger.api.idempotency import ClaimResult
+from ledger.api.problem_details import problem_response
 from ledger.api.schemas import (
     AccountResponse,
     DepositRequest,
@@ -25,6 +30,15 @@ router = APIRouter(
 )
 
 Context = Annotated[AppContext, Depends(get_context)]
+
+_DEPOSIT_ROUTE = "POST /api/accounts/{id}/deposit"
+
+
+def _deposit_fingerprint(account_id: AccountId, body: DepositRequest) -> str:
+    canonical = json.dumps(
+        {"account_id": str(account_id), **body.model_dump(mode="json")}, sort_keys=True
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _account_response(account_id: AccountId, account: Account) -> AccountResponse:
@@ -69,19 +83,51 @@ async def open_account(
     return _account_response(account_id, account)
 
 
-@router.post("/{account_id}/deposit")
+@router.post("/{account_id}/deposit", response_model=AccountResponse)
 async def deposit(
     account_id: AccountId,
     body: DepositRequest,
     context: Context,
+    idempotency_key: Annotated[str | None, Header()] = None,
     traceparent: Annotated[str | None, Header()] = None,
-) -> AccountResponse:
-    account = await _load_or_404(context, account_id)
-    account.deposit(Money(amount=body.amount, currency=body.currency))
-    await context.repositories.accounts.save(
-        account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
-    )
-    return _account_response(account_id, account)
+) -> AccountResponse | JSONResponse:
+    if idempotency_key is not None:
+        result, stored = context.idempotency.claim(
+            idempotency_key, _DEPOSIT_ROUTE, _deposit_fingerprint(account_id, body)
+        )
+        match result:
+            case ClaimResult.REPLAY if stored is not None:
+                return JSONResponse(status_code=stored.status_code, content=stored.body)
+            case ClaimResult.IN_PROGRESS:
+                return problem_response(
+                    "duplicate_request_in_progress",
+                    "a deposit with this idempotency key is already in progress",
+                )
+            case ClaimResult.MISMATCH:
+                return problem_response(
+                    "idempotency_key_reused",
+                    "idempotency key was reused with a different request",
+                )
+            case _:
+                pass
+
+    try:
+        account = await _load_or_404(context, account_id)
+        account.deposit(Money(amount=body.amount, currency=body.currency))
+        await context.repositories.accounts.save(
+            account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
+        )
+    except Exception:
+        if idempotency_key is not None:
+            context.idempotency.discard(idempotency_key, _DEPOSIT_ROUTE)
+        raise
+
+    response = _account_response(account_id, account)
+    if idempotency_key is not None:
+        context.idempotency.complete(
+            idempotency_key, _DEPOSIT_ROUTE, 200, response.model_dump(mode="json")
+        )
+    return response
 
 
 @router.get("/{account_id}")

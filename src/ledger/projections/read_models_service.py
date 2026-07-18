@@ -10,6 +10,8 @@ Postgres read model) is the production evolution; this keeps the read side genui
 live and queryable in-process.
 """
 
+import asyncio
+
 from ledger.domain.shared.identifiers import AccountId
 from ledger.eventstore.serialization import EventRegistry
 from ledger.eventstore.store import EventStore
@@ -34,10 +36,15 @@ class ReadModels:
             name=_RUNNER_NAME,
             projectors=[self._balances, self._statements],
         )
+        # Serialize drains: the projectors apply events non-idempotently (+=), so two
+        # concurrent catch-ups reading the same batch (the store's read yields) would
+        # double-apply. The lock makes overlapping reads apply each event exactly once.
+        self._lock = asyncio.Lock()
 
     async def catch_up(self) -> None:
         """Process any events since the last read so the models are current."""
-        await self._runner.drain()
+        async with self._lock:
+            await self._runner.drain()
 
     async def balance_of(self, account_id: AccountId) -> AccountBalanceView | None:
         await self.catch_up()

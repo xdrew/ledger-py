@@ -1,21 +1,43 @@
 """Unit tests for the CQRS read side: projections + runner + checkpoints."""
 
+import asyncio
+from uuid import UUID
+
 from ledger.domain.accounts.account import Account, AccountStatus
 from ledger.domain.accounts.events import ACCOUNT_STREAM
 from ledger.domain.shared.identifiers import new_account_id, new_event_id
 from ledger.domain.shared.money import Money
 from ledger.eventstore.memory import InMemoryEventStore
+from ledger.eventstore.records import StoredEvent
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.repository import EventSourcedRepository
 from ledger.projections.read_models import (
     AccountBalancesProjection,
     AccountStatementProjection,
 )
+from ledger.projections.read_models_service import ReadModels
 from ledger.projections.runner import InMemoryCheckpointStore, ProjectionRunner
 
 
 def usd(amount: int) -> Money:
     return Money(amount=amount, currency="USD")
+
+
+class _YieldingStore:
+    """Wraps a store but makes ``read_all`` yield, exposing catch-up races."""
+
+    def __init__(self, inner: InMemoryEventStore) -> None:
+        self._inner = inner
+
+    async def read_all(self, *, from_position: int = 0, limit: int = 500) -> list[StoredEvent]:
+        await asyncio.sleep(0)  # yield → let a concurrent drain interleave
+        return await self._inner.read_all(from_position=from_position, limit=limit)
+
+    async def load_stream(self, *, stream_type: str, stream_id: UUID) -> list[StoredEvent]:
+        return await self._inner.load_stream(stream_type=stream_type, stream_id=stream_id)
+
+    async def append(self, **kwargs: object) -> list[StoredEvent]:  # pragma: no cover - unused
+        raise NotImplementedError
 
 
 async def _seed_account() -> tuple[InMemoryEventStore, object]:
@@ -31,6 +53,30 @@ async def _seed_account() -> tuple[InMemoryEventStore, object]:
     account.debit(usd(400), new_event_id())
     await repo.save(account_id, account)
     return store, account_id
+
+
+class TestReadModelsConcurrency:
+    async def test_concurrent_catch_up_applies_each_event_once(self) -> None:
+        registry = build_event_registry()
+        inner = InMemoryEventStore(registry)
+        repo: EventSourcedRepository[Account] = EventSourcedRepository(
+            store=inner, registry=registry, stream_type=ACCOUNT_STREAM, factory=Account
+        )
+        account_id = new_account_id()
+        account = Account.open(account_id, "USD")
+        account.deposit(usd(500))
+        await repo.save(account_id, account)
+
+        read_models = ReadModels(_YieldingStore(inner), registry)
+        # Statement lines are appended (not reset like a balance), so a double-apply
+        # shows up as duplicate lines — a reliable witness of the catch-up race.
+        first, second = await asyncio.gather(
+            read_models.statement_of(account_id),
+            read_models.statement_of(account_id),
+        )
+        # Without the lock both drains read the same batch and append the deposit twice.
+        assert [line.kind for line in first] == ["FundsDeposited"]
+        assert [line.kind for line in second] == ["FundsDeposited"]
 
 
 class TestProjections:

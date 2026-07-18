@@ -26,6 +26,8 @@ class TransferInput(BaseModel):
     destination_account_id: AccountId
     amount: Money
     reversal_of: TransferId | None = None
+    # W3C trace context carried from the initiating request through the saga.
+    traceparent: str | None = None
 
 
 class FailInput(BaseModel):

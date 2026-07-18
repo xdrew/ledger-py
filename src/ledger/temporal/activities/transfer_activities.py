@@ -30,9 +30,10 @@ from ledger.domain.shared.errors import (
     UnbalancedEntry,
     UnknownAccount,
 )
-from ledger.domain.shared.identifiers import AccountId
+from ledger.domain.shared.identifiers import AccountId, TransferId
 from ledger.domain.transfers.operations import journal_entry_id_for, operation_id
 from ledger.domain.transfers.transfer import Transfer, TransferStatus
+from ledger.eventstore.records import EventMetadata
 from ledger.eventstore.repository import EventSourcedRepository
 from ledger.temporal.messages import FailInput, ParkInput, RefundInput, TransferInput
 
@@ -42,6 +43,11 @@ _NON_TERMINAL = frozenset({TransferStatus.INITIATED, TransferStatus.HELD, Transf
 def _terminal(err: DomainError) -> ApplicationError:
     """A domain rule was violated — do not retry; hand the code to the workflow."""
     return ApplicationError(err.message, type=err.code, non_retryable=True)
+
+
+def _meta(transfer_id: TransferId, traceparent: str | None = None) -> EventMetadata:
+    """Envelope tying a transfer's cross-stream events together and carrying trace."""
+    return EventMetadata(correlation_id=transfer_id, traceparent=traceparent)
 
 
 class _RepositoryStatusReader:
@@ -74,7 +80,9 @@ class TransferActivities:
             data.amount,
             data.reversal_of,
         )
-        await self.transfers.save(data.transfer_id, transfer)
+        await self.transfers.save(
+            data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
+        )
 
     @activity.defn
     async def hold_funds(self, data: TransferInput) -> None:
@@ -84,7 +92,9 @@ class TransferActivities:
             if source is None:
                 raise UnknownAccount(str(data.source_account_id))
             source.hold(data.amount, op)
-            await self.accounts.save(data.source_account_id, source)
+            await self.accounts.save(
+                data.source_account_id, source, _meta(data.transfer_id, data.traceparent)
+            )
         except (
             InsufficientFunds,
             AccountNotActive,
@@ -96,7 +106,9 @@ class TransferActivities:
         transfer = await self.transfers.load(data.transfer_id)
         if transfer is not None and transfer.status is TransferStatus.INITIATED:
             transfer.mark_held()
-            await self.transfers.save(data.transfer_id, transfer)
+            await self.transfers.save(
+                data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
+            )
 
     @activity.defn
     async def post_journal(self, data: TransferInput) -> str:
@@ -116,12 +128,14 @@ class TransferActivities:
                 UnbalancedEntry,
             ) as err:
                 raise _terminal(err) from err
-            await self.journals.save(entry_id, entry)
+            await self.journals.save(entry_id, entry, _meta(data.transfer_id, data.traceparent))
 
         transfer = await self.transfers.load(data.transfer_id)
         if transfer is not None and transfer.status is TransferStatus.HELD:
             transfer.mark_posted(entry_id)
-            await self.transfers.save(data.transfer_id, transfer)
+            await self.transfers.save(
+                data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
+            )
         return str(entry_id)
 
     @activity.defn
@@ -132,7 +146,9 @@ class TransferActivities:
             if source is None:
                 raise UnknownAccount(str(data.source_account_id))
             source.debit(data.amount, op)
-            await self.accounts.save(data.source_account_id, source)
+            await self.accounts.save(
+                data.source_account_id, source, _meta(data.transfer_id, data.traceparent)
+            )
         except (InsufficientFunds, AccountNotActive, UnknownAccount) as err:
             raise _terminal(err) from err
 
@@ -144,7 +160,9 @@ class TransferActivities:
             if destination is None:
                 raise UnknownAccount(str(data.destination_account_id))
             destination.credit(data.amount, op)
-            await self.accounts.save(data.destination_account_id, destination)
+            await self.accounts.save(
+                data.destination_account_id, destination, _meta(data.transfer_id, data.traceparent)
+            )
         except (AccountNotActive, UnknownAccount) as err:
             raise _terminal(err) from err
 
@@ -157,7 +175,9 @@ class TransferActivities:
             TransferStatus.NEEDS_RECONCILIATION,
         ):
             transfer.complete()
-            await self.transfers.save(data.transfer_id, transfer)
+            await self.transfers.save(
+                data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
+            )
 
     @activity.defn
     async def refund_source(self, data: RefundInput) -> None:
@@ -174,14 +194,14 @@ class TransferActivities:
             if source is None:
                 raise UnknownAccount(str(data.source_account_id))
             source.credit(data.amount, op)
-            await self.accounts.save(data.source_account_id, source)
+            await self.accounts.save(data.source_account_id, source, _meta(data.transfer_id))
         except (AccountNotActive, UnknownAccount) as err:
             raise _terminal(err) from err
 
         transfer = await self.transfers.load(data.transfer_id)
         if transfer is not None and transfer.status is TransferStatus.NEEDS_RECONCILIATION:
             transfer.reconcile("refunded", "funds returned to source")
-            await self.transfers.save(data.transfer_id, transfer)
+            await self.transfers.save(data.transfer_id, transfer, _meta(data.transfer_id))
 
     @activity.defn
     async def release_hold(self, data: TransferInput) -> None:
@@ -191,7 +211,9 @@ class TransferActivities:
         if source is None:
             return
         source.release_hold(data.amount, op)
-        await self.accounts.save(data.source_account_id, source)
+        await self.accounts.save(
+            data.source_account_id, source, _meta(data.transfer_id, data.traceparent)
+        )
 
     @activity.defn
     async def fail_transfer(self, data: FailInput) -> None:
@@ -199,7 +221,7 @@ class TransferActivities:
         if transfer is None or transfer.status not in _NON_TERMINAL:
             return
         transfer.fail(data.reason, data.detail)
-        await self.transfers.save(data.transfer_id, transfer)
+        await self.transfers.save(data.transfer_id, transfer, _meta(data.transfer_id))
 
     @activity.defn
     async def park_transfer(self, data: ParkInput) -> None:
@@ -207,7 +229,7 @@ class TransferActivities:
         if transfer is None or transfer.status is not TransferStatus.POSTED:
             return
         transfer.park_for_reconciliation(data.detail)
-        await self.transfers.save(data.transfer_id, transfer)
+        await self.transfers.save(data.transfer_id, transfer, _meta(data.transfer_id))
 
     def all_activities(self) -> list[Callable[..., Any]]:
         """The bound activity callables to register with the worker."""

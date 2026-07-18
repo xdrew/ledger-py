@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 
 from ledger.api.auth import require_api_key
 from ledger.api.context import AppContext, get_context
@@ -18,7 +18,7 @@ from ledger.domain.accounts.events import ACCOUNT_STREAM
 from ledger.domain.shared.errors import NotFound
 from ledger.domain.shared.identifiers import AccountId, new_account_id
 from ledger.domain.shared.money import Money
-from ledger.eventstore.records import StoredEvent
+from ledger.eventstore.records import EventMetadata, StoredEvent
 
 router = APIRouter(
     prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(require_api_key)]
@@ -60,18 +60,31 @@ async def _load_or_404(context: AppContext, account_id: AccountId) -> Account:
 
 
 @router.post("", status_code=201)
-async def open_account(body: OpenAccountRequest, context: Context) -> AccountResponse:
+async def open_account(
+    body: OpenAccountRequest,
+    context: Context,
+    traceparent: Annotated[str | None, Header()] = None,
+) -> AccountResponse:
     account_id = new_account_id()
     account = Account.open(account_id, body.currency)
-    await context.repositories.accounts.save(account_id, account)
+    await context.repositories.accounts.save(
+        account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
+    )
     return _account_response(account_id, account)
 
 
 @router.post("/{account_id}/deposit")
-async def deposit(account_id: AccountId, body: DepositRequest, context: Context) -> AccountResponse:
+async def deposit(
+    account_id: AccountId,
+    body: DepositRequest,
+    context: Context,
+    traceparent: Annotated[str | None, Header()] = None,
+) -> AccountResponse:
     account = await _load_or_404(context, account_id)
     account.deposit(Money(amount=body.amount, currency=body.currency))
-    await context.repositories.accounts.save(account_id, account)
+    await context.repositories.accounts.save(
+        account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
+    )
     return _account_response(account_id, account)
 
 

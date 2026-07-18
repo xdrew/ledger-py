@@ -69,6 +69,7 @@ async def create_transfer(
     body: CreateTransferRequest,
     context: Context,
     idempotency_key: Annotated[str | None, Header()] = None,
+    traceparent: Annotated[str | None, Header()] = None,
 ) -> TransferAccepted | JSONResponse:
     if idempotency_key is not None:
         # Claim the key atomically *before* any work so concurrent duplicates
@@ -98,6 +99,7 @@ async def create_transfer(
                 source_account_id=body.source_account_id,
                 destination_account_id=body.destination_account_id,
                 amount=Money(amount=body.amount, currency=body.currency),
+                traceparent=traceparent,
             )
         )
     except Exception:

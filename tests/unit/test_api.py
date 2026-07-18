@@ -155,6 +155,35 @@ class TestAccounts:
         assert response.headers["content-type"] == "application/problem+json"
         assert response.json()["code"] == "concurrency_conflict"
 
+    async def test_account_events_carry_correlation_and_trace(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        ctx, _ = context
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        account_id = UUID(
+            client.post(
+                "/api/accounts",
+                json={"currency": "USD"},
+                headers={**HEADERS, "traceparent": traceparent},
+            ).json()["account_id"]
+        )
+        stream = await ctx.store.load_stream(stream_type="account", stream_id=account_id)
+        assert stream[0].metadata.correlation_id == account_id
+        assert stream[0].metadata.traceparent == traceparent
+
+    async def test_account_events_without_trace_are_null(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        ctx, _ = context
+        account_id = UUID(
+            client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+                "account_id"
+            ]
+        )
+        stream = await ctx.store.load_stream(stream_type="account", stream_id=account_id)
+        assert stream[0].metadata.correlation_id == account_id
+        assert stream[0].metadata.traceparent is None
+
     def test_statement_and_events(self, client: TestClient) -> None:
         account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
             "account_id"

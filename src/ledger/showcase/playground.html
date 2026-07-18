@@ -226,6 +226,7 @@
           <div class="ds-run">
             <div class="field"><label>payment amount</label><input class="mono" id="dsAmt" value="100" style="width:96px" /></div>
             <button class="primary" id="dsBtn" onclick="doubleSpend()">Fire two at once</button>
+            <button id="dsFundBtn" onclick="fundDemoSource()">Fund source</button>
           </div>
           <div class="ds-lanes" id="dsLanes" hidden></div>
           <div class="ds-verdict" id="dsVerdict" hidden></div>
@@ -460,38 +461,62 @@
         const reason = o.status === "failed" && o.reason ? `<div class="ds-reason mono">rejected · ${o.reason}</div>` : "";
         return `<div class="ds-lane ${cls}"><div class="ds-lane-head"><span class="ds-lane-label">Payment ${label}</span><span class="pill ${cls}">${text}</span></div>${reason}</div>`;
       }
+      // The double-spend uses ONE persistent source across runs, so the second run
+      // hits the same (now-drained) account — no auto-refunding hides the outcome.
+      async function ensureDemoAccounts(cur) {
+        if (state.dsSrc) return;
+        state.dsSrc = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
+        state.dsDst = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
+      }
+      async function showDemoAccounts() {
+        state.src = state.dsSrc; state.dst = state.dsDst;
+        showAccounts(await bal(state.dsSrc), await bal(state.dsDst));
+      }
+      async function fundDemoSource() {
+        const amt = Number($("dsAmt").value) || 100;
+        const cur = $("cur").value || "USD";
+        state.cur = cur;
+        await ensureDemoAccounts(cur);
+        await api("POST", `/api/accounts/${state.dsSrc}/deposit`, { amount: amt, currency: cur });
+        await showDemoAccounts();
+      }
       async function doubleSpend() {
         const btn = $("dsBtn"); btn.disabled = true;
         const amt = Number($("dsAmt").value) || 100;
         const cur = $("cur").value || "USD";
+        state.cur = cur;
         const lanes = $("dsLanes"), verdict = $("dsVerdict");
         lanes.hidden = false; verdict.hidden = true;
         const pending = { status: "pending", reason: "in flight…" };
         lanes.innerHTML = laneEl("A", pending) + laneEl("B", pending);
 
-        // A source funded for exactly one payment; both transfers target it at once.
-        const src = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
-        await api("POST", `/api/accounts/${src}/deposit`, { amount: amt, currency: cur });
-        const dst = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
-        const body = { source_account_id: src, destination_account_id: dst, amount: amt, currency: cur };
+        // First run arms a fresh source for one payment; later runs reuse it as-is.
+        const firstRun = !state.dsSrc;
+        await ensureDemoAccounts(cur);
+        if (firstRun) await api("POST", `/api/accounts/${state.dsSrc}/deposit`, { amount: amt, currency: cur });
+
+        const body = { source_account_id: state.dsSrc, destination_account_id: state.dsDst, amount: amt, currency: cur };
         const [ra, rb] = await Promise.all([api("POST", "/api/transfers", body), api("POST", "/api/transfers", body)]);
         const [oa, ob] = await Promise.all([pollTerminal(ra.data.transfer_id), pollTerminal(rb.data.transfer_id)]);
         lanes.innerHTML = laneEl("A", oa) + laneEl("B", ob);
 
         const settled = [oa, ob].filter((o) => o.status === "completed").length;
         const rejected = [oa, ob].filter((o) => o.status === "failed").length;
-        const sb = await bal(src);
+        await showDemoAccounts();
+        const sb = await bal(state.dsSrc);
         const remaining = sb ? sb.available + sb.reserved : 0;
-        // Reflect the demo's own accounts below, so the source visibly ends debited
-        // once (100 → 0) and the destination holds the one payment that settled.
-        state.src = src; state.dst = dst; state.cur = cur;
-        showAccounts(sb, await bal(dst));
-        const ok = settled === 1 && rejected === 1;
+
         verdict.hidden = false;
-        verdict.className = "ds-verdict " + (ok ? "ok" : "warn");
-        verdict.innerHTML = ok
-          ? `<b>Exactly one payment settled.</b> The event log's optimistic concurrency rejected the double-spend — the source was debited once (${amt} out), remaining balance ${remaining} ${cur}.`
-          : `Unexpected outcome: ${settled} settled, ${rejected} rejected. (Both should not settle.)`;
+        if (settled === 1 && rejected === 1) {
+          verdict.className = "ds-verdict ok";
+          verdict.innerHTML = `<b>Exactly one payment settled.</b> Optimistic concurrency on the event log rejected the double-spend — the source was debited once (${amt} out), balance now ${remaining} ${cur}. Fire again on the empty source, or fund it to re-arm.`;
+        } else if (settled === 0) {
+          verdict.className = "ds-verdict warn";
+          verdict.innerHTML = `<b>Both rejected — the source is empty.</b> The previous run drained it, so neither payment could hold funds (balance ${remaining} ${cur}). Use <b>Fund source</b> to arm it for another one-wins race.`;
+        } else {
+          verdict.className = "ds-verdict warn";
+          verdict.innerHTML = `Unexpected: ${settled} settled, ${rejected} rejected — both should never settle.`;
+        }
         btn.disabled = false;
       }
 

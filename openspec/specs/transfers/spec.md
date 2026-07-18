@@ -164,8 +164,10 @@ amount back to the source account's available balance (via a deterministic,
 idempotent operation id), record `TransferReconciled`, and reach the `Reconciled`
 state. A **retry-credit** decision SHALL re-attempt the destination credit; on
 success the transfer SHALL reach `Completed` (recording `TransferCompleted`), and on
-continued failure it SHALL remain parked and await a further decision. The transfer
-aggregate SHALL permit `NeedsReconciliation → Reconciled` and
+continued failure it SHALL remain parked and await a further decision. If a
+resolution attempt itself fails (a refund or retry activity errors), the transfer
+SHALL remain parked and awaiting a further decision rather than failing the
+workflow. The transfer aggregate SHALL permit `NeedsReconciliation → Reconciled` and
 `NeedsReconciliation → Completed` and SHALL reject any other transition out of the
 parked state.
 
@@ -193,6 +195,12 @@ parked state.
 - **WHEN** a parked transfer is resolved with retry-credit but the destination still cannot be credited
 - **THEN** the transfer remains in `needs_reconciliation` awaiting a further decision
 - **AND** no `Completed` or `Reconciled` state is recorded
+
+#### Scenario: A failed refund keeps the transfer parked
+
+- **WHEN** a parked transfer is resolved with refund-source but the refund activity fails
+- **THEN** the transfer remains in `needs_reconciliation` awaiting a further decision
+- **AND** the workflow does not fail and can still be resolved by a subsequent decision
 
 ### Requirement: Parked transfers are resolvable through the HTTP API
 

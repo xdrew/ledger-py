@@ -187,16 +187,19 @@ class TransferWorkflow:
                     journal_entry_id=UUID(entry_id),
                 )
 
-            await workflow.execute_activity_method(
-                TransferActivities.refund_source,
-                RefundInput(
-                    transfer_id=data.transfer_id,
-                    source_account_id=data.source_account_id,
-                    amount=data.amount,
-                ),
-                start_to_close_timeout=_ACTIVITY_TIMEOUT,
-                retry_policy=_DEFAULT_RETRY,
-            )
+            try:
+                await workflow.execute_activity_method(
+                    TransferActivities.refund_source,
+                    RefundInput(
+                        transfer_id=data.transfer_id,
+                        source_account_id=data.source_account_id,
+                        amount=data.amount,
+                    ),
+                    start_to_close_timeout=_ACTIVITY_TIMEOUT,
+                    retry_policy=_DEFAULT_RETRY,
+                )
+            except ActivityError:
+                continue  # refund could not be applied; remain parked for a further decision
             self._status = TransferStatus.RECONCILED
             return TransferResult(
                 transfer_id=data.transfer_id,

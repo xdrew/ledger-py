@@ -26,7 +26,12 @@ from ledger.eventstore.memory import InMemoryEventStore
 from ledger.eventstore.registry import build_event_registry
 from ledger.temporal.activities.transfer_activities import TransferActivities
 from ledger.temporal.dependencies import LedgerRepositories, build_repositories
-from ledger.temporal.messages import ReconciliationResolution, TransferInput, TransferResult
+from ledger.temporal.messages import (
+    ReconciliationResolution,
+    RefundInput,
+    TransferInput,
+    TransferResult,
+)
 from ledger.temporal.workflows.transfer_workflow import TransferWorkflow
 
 TASK_QUEUE = "ledger-test"
@@ -326,3 +331,81 @@ class TestTransferSaga:
         reloaded_source = await repos.accounts.load(source.account_id)
         assert reloaded_source is not None
         assert reloaded_source.available == usd(1000)  # refunded after retry failed
+
+    async def test_failed_refund_keeps_parked_then_resolves(self, env: WorkflowEnvironment) -> None:
+        repos = _repositories()
+        source = await _open_account(repos, deposit=1000)
+        destination = await _open_account(repos)
+        assert source.account_id is not None
+        assert destination.account_id is not None
+
+        acts = TransferActivities(repos.accounts, repos.journals, repos.transfers)
+        refund_calls = {"n": 0}
+
+        @activity.defn(name="settle_credit")
+        async def failing_settle_credit(data: TransferInput) -> None:
+            raise ApplicationError(
+                "destination unreachable", type="account_not_active", non_retryable=True
+            )
+
+        # First refund fails (non-retryable); the second delegates to the real refund.
+        @activity.defn(name="refund_source")
+        async def flaky_refund(data: RefundInput) -> None:
+            refund_calls["n"] += 1
+            if refund_calls["n"] == 1:
+                raise ApplicationError(
+                    "source frozen", type="account_not_active", non_retryable=True
+                )
+            await acts.refund_source(data)
+
+        activities: list[Callable[..., Any]] = [
+            acts.record_initiated,
+            acts.hold_funds,
+            acts.post_journal,
+            acts.settle_debit,
+            failing_settle_credit,
+            flaky_refund,
+            acts.release_hold,
+            acts.fail_transfer,
+            acts.park_transfer,
+        ]
+        data = TransferInput(
+            transfer_id=new_transfer_id(),
+            source_account_id=source.account_id,
+            destination_account_id=destination.account_id,
+            amount=usd(400),
+        )
+        client = _pydantic_client(env)
+        async with Worker(
+            client, task_queue=TASK_QUEUE, workflows=[TransferWorkflow], activities=activities
+        ):
+            handle = await client.start_workflow(
+                TransferWorkflow.run,
+                data,
+                id=f"transfer-{data.transfer_id}",
+                task_queue=TASK_QUEUE,
+            )
+            await _await_status(handle, TransferStatus.NEEDS_RECONCILIATION.value)
+
+            await handle.signal(
+                TransferWorkflow.resolve_reconciliation, ReconciliationResolution.REFUND_SOURCE
+            )
+            for _ in range(500):  # wait until the failing refund was attempted
+                if refund_calls["n"] >= 1:
+                    break
+                await asyncio.sleep(0.02)
+            assert refund_calls["n"] >= 1
+            # The workflow survived the failed refund and is still parked.
+            assert await handle.query(TransferWorkflow.current_status) == (
+                TransferStatus.NEEDS_RECONCILIATION.value
+            )
+
+            await handle.signal(
+                TransferWorkflow.resolve_reconciliation, ReconciliationResolution.REFUND_SOURCE
+            )
+            result = await handle.result()
+
+        assert result.status is TransferStatus.RECONCILED
+        reloaded_source = await repos.accounts.load(source.account_id)
+        assert reloaded_source is not None
+        assert reloaded_source.available == usd(1000)  # made whole on the second refund

@@ -42,3 +42,22 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: ignore
+
+  mutation:
+    # Mutation testing over the domain (correctness core). Fast — the domain is
+    # small — so it gates every push/PR: a weakened domain suite drops the
+    # kill-rate below the floor and fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (pins Python via .python-version)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync (locked)
+        run: uv sync --extra dev --locked
+
+      - name: Mutation testing (domain, kill-rate floor)
+        run: uv run python scripts/mutation_gate.py 0.75

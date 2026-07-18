@@ -53,6 +53,14 @@ class TestAccountCommands:
         with pytest.raises(InsufficientFunds):
             account.hold(usd(101), op())
 
+    def test_hold_exactly_available_succeeds(self) -> None:
+        # Boundary: holding the full available balance is allowed (< not <=).
+        account = Account.open(new_account_id(), "USD")
+        account.deposit(usd(100))
+        account.hold(usd(100), op())
+        assert account.available == usd(0)
+        assert account.reserved == usd(100)
+
     def test_release_hold_returns_to_available(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
@@ -76,12 +84,29 @@ class TestAccountCommands:
         with pytest.raises(InsufficientFunds):
             account.debit(usd(200), op())
 
+    def test_debit_exactly_reserved_succeeds(self) -> None:
+        # Boundary: debiting the full reserved balance is allowed (< not <=).
+        account = Account.open(new_account_id(), "USD")
+        account.deposit(usd(100))
+        account.hold(usd(100), op())
+        account.debit(usd(100), op())
+        assert account.reserved == usd(0)
+
     def test_release_beyond_reserved_rejected(self) -> None:
         account = Account.open(new_account_id(), "USD")
         account.deposit(usd(1000))
         account.hold(usd(100), op())
         with pytest.raises(InsufficientFunds):
             account.release_hold(usd(200), op())
+
+    def test_release_exactly_reserved_succeeds(self) -> None:
+        # Boundary: releasing the full reserved balance is allowed (< not <=).
+        account = Account.open(new_account_id(), "USD")
+        account.deposit(usd(100))
+        account.hold(usd(100), op())
+        account.release_hold(usd(100), op())
+        assert account.available == usd(100)
+        assert account.reserved == usd(0)
 
     def test_credit_increases_available(self) -> None:
         account = Account.open(new_account_id(), "USD")

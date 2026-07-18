@@ -101,10 +101,11 @@ exclude_also = [
 
 # mutmut — mutation testing (the Infection analogue). Run on demand: `just mutation`.
 [tool.mutmut]
-# Mutation testing of the domain (correctness core), run offline on demand.
-# NOTE: mutmut 3.x drives a coverage-selected test subset against a mutants/ copy;
-# with this src-layout it needs a non-editable install + a fresh coverage map to
-# apply mutations. Tracked as a follow-up; test strength today is evidenced by
-# branch coverage and the hypothesis property tests (test_property_*).
-source_paths = ["src/ledger/domain"]
+# Mutation testing of the domain (correctness core). The whole package is copied
+# into mutants/ so imports resolve; tests are copied too so pytest can collect
+# them; only the domain is actually mutated. Unit tests (no Docker/Temporal) are
+# the oracle. Run: `uv run mutmut run` (CI target: `just mutation`).
+source_paths = ["src/ledger"]
+also_copy = ["tests", "pyproject.toml"]
+only_mutate = ["src/ledger/domain/*"]
 pytest_add_cli_args_test_selection = ["tests/unit"]

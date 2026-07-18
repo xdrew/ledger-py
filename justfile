@@ -52,10 +52,9 @@ test *ARGS:
 cov:
     uv run pytest --cov=ledger --cov-report=term-missing
 
-# Mutation testing over the domain (Infection analogue). Slow — run before releases.
-mutation:
-    uv run mutmut run
-    uv run mutmut results
+# Mutation testing over the domain (Infection analogue). Fast; enforces a kill-rate floor.
+mutation floor="0.75":
+    uv run python scripts/mutation_gate.py {{floor}}
 
 # Full gate — run before every commit.
 check: lint typecheck test

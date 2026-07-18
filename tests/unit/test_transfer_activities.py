@@ -74,6 +74,14 @@ class TestActivityHappyPath:
         assert transfer is not None
         assert transfer.version == 1
 
+    async def test_record_initiated_self_transfer_is_non_retryable(self) -> None:
+        acts, data = await _fixture()
+        same = data.model_copy(update={"destination_account_id": data.source_account_id})
+        with pytest.raises(ApplicationError) as excinfo:
+            await acts.record_initiated(same)
+        assert excinfo.value.non_retryable is True
+        assert excinfo.value.type == "same_account_transfer"
+
     async def test_hold_and_post_are_idempotent(self) -> None:
         acts, data = await _fixture()
         await acts.record_initiated(data)

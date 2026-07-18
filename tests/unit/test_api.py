@@ -360,6 +360,25 @@ class TestTransfers:
         assert response.json()["status"] == "initiated"
         assert response.json()["amount"] == 250
 
+    def test_self_transfer_is_422_and_not_started(
+        self, client: TestClient, context: tuple[AppContext, FakeGateway]
+    ) -> None:
+        _, gateway = context
+        account = str(new_account_id())
+        response = client.post(
+            "/api/transfers",
+            json={
+                "source_account_id": account,
+                "destination_account_id": account,
+                "amount": 100,
+                "currency": "USD",
+            },
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+        assert response.json()["code"] == "same_account_transfer"
+        assert gateway.started == []  # saga never started
+
     def test_get_unknown_transfer_is_404(self, client: TestClient) -> None:
         response = client.get(f"/api/transfers/{new_transfer_id()}", headers=HEADERS)
         assert response.status_code == 404

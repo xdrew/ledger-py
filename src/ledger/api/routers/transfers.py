@@ -18,7 +18,7 @@ from ledger.api.schemas import (
     TransferAccepted,
     TransferResponse,
 )
-from ledger.domain.shared.errors import InvalidTransition, NotFound
+from ledger.domain.shared.errors import InvalidTransition, NotFound, SameAccountTransfer
 from ledger.domain.shared.identifiers import TransferId, new_transfer_id
 from ledger.domain.shared.money import Money
 from ledger.domain.transfers.events import TRANSFER_STREAM
@@ -71,6 +71,10 @@ async def create_transfer(
     idempotency_key: Annotated[str | None, Header()] = None,
     traceparent: Annotated[str | None, Header()] = None,
 ) -> TransferAccepted | JSONResponse:
+    if body.source_account_id == body.destination_account_id:
+        # Reject at the edge (422) instead of accepting and letting the saga fail.
+        raise SameAccountTransfer("source and destination must be different accounts")
+
     if idempotency_key is not None:
         # Claim the key atomically *before* any work so concurrent duplicates
         # cannot each start a saga (claim() does no await — atomic under the loop).

@@ -27,6 +27,8 @@ from ledger.domain.shared.errors import (
     CurrencyMismatch,
     DomainError,
     InsufficientFunds,
+    InvalidAmount,
+    SameAccountTransfer,
     UnbalancedEntry,
     UnknownAccount,
 )
@@ -73,13 +75,17 @@ class TransferActivities:
     async def record_initiated(self, data: TransferInput) -> None:
         if await self.transfers.load(data.transfer_id) is not None:
             return
-        transfer = Transfer.initiate(
-            data.transfer_id,
-            data.source_account_id,
-            data.destination_account_id,
-            data.amount,
-            data.reversal_of,
-        )
+        try:
+            transfer = Transfer.initiate(
+                data.transfer_id,
+                data.source_account_id,
+                data.destination_account_id,
+                data.amount,
+                data.reversal_of,
+            )
+        except (SameAccountTransfer, InvalidAmount) as err:
+            # Bad input, not a transient fault — fail fast instead of retrying.
+            raise _terminal(err) from err
         await self.transfers.save(
             data.transfer_id, transfer, _meta(data.transfer_id, data.traceparent)
         )

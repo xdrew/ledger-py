@@ -1,0 +1,36 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ledger-py.fullname" . }}-migrate
+  labels:
+    {{- include "ledger-py.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Run before the api/worker/relay roll out; never migrate on app boot.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "ledger-py.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      {{- include "ledger-py.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["ledger-migrate"]
+          envFrom:
+            # Hook-scoped copies (migrate-env.yaml) — the release ConfigMap/
+            # Secret don't exist yet when pre-install hooks run.
+            - configMapRef:
+                name: {{ include "ledger-py.fullname" . }}-migrate-config
+            - secretRef:
+                name: {{ include "ledger-py.fullname" . }}-migrate-secret
+{{- end }}

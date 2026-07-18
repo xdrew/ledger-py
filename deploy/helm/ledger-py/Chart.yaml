@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ledger-py
+description: Event-sourced payment ledger orchestrated with Temporal — API, worker, relay
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

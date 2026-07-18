@@ -1,0 +1,15 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ledger-py.fullname" . }}-api
+  labels:
+    {{- include "ledger-py.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ledger-py.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+{{- end }}

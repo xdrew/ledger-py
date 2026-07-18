@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ledger-py.fullname" . }}-relay
+  labels:
+    {{- include "ledger-py.labels" . | nindent 4 }}
+    app.kubernetes.io/component: relay
+spec:
+  # The relay tails a single global checkpoint — a single replica avoids
+  # duplicate publishing; it is at-least-once, so downstream must dedupe anyway.
+  replicas: {{ .Values.relay.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ledger-py.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: relay
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "ledger-py.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: relay
+    spec:
+      {{- include "ledger-py.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: relay
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["ledger-relay"]
+          # Shuts down cleanly on SIGTERM (handled in the relay loop).
+          envFrom:
+            {{- include "ledger-py.envFrom" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.relay.resources | nindent 12 }}

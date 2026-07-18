@@ -1,0 +1,69 @@
+image:
+  repository: ghcr.io/xdrew/ledger-py
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Optional image pull secret for the private GHCR image (created out-of-band).
+imagePullSecrets: []
+# - name: ghcr
+
+# Non-secret configuration (rendered into a ConfigMap). Postgres and Temporal are
+# external dependencies referenced by address here.
+config:
+  serviceName: ledger-core
+  logLevel: INFO
+  temporalAddress: "temporal:7233"
+  temporalNamespace: default
+  temporalTaskQueue: ledger-transfers
+  otelExporterOtlpEndpoint: ""
+
+# Secrets — override via --set or an external/sealed secret in real clusters.
+secret:
+  databaseUrl: "postgresql://ledger:ledger@postgres:5432/ledger"
+  apiKey: "change-me"
+
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+relay:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# DB migrations run as a pre-install/pre-upgrade Job — never on app boot.
+migrations:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: ""
+  host: ledger-py.avelent.work
+  annotations: {}
+  tls: []
+  # - secretName: ledger-py-tls
+  #   hosts: [ledger-py.avelent.work]
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+terminationGracePeriodSeconds: 30

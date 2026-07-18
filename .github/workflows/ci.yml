@@ -135,7 +135,7 @@ jobs:
       - name: Deploy over an SSH tunnel to the cluster
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
         run: |
@@ -143,7 +143,8 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          printf '%s' "$KUBECONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          printf '%s\n' "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
           # Tunnel the k3s API; the key may only forward this one port.
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes \
             -f -N -L 6443:127.0.0.1:6443 "${DEPLOY_USER}@${DEPLOY_HOST}"

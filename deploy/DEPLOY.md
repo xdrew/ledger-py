@@ -29,8 +29,9 @@ Repo **Secrets**:
 
 - `DEPLOY_SSH_KEY` — private key whose public key is authorized on the server,
   restricted to forwarding `127.0.0.1:6443` only (see below).
-- `KUBECONFIG_B64` — base64 of the k3s kubeconfig (its `server:` is already
-  `https://127.0.0.1:6443`, which the tunnel points at).
+- `KUBECONFIG` — the k3s kubeconfig verbatim (its `server:` is already
+  `https://127.0.0.1:6443`, which the tunnel points at); paste
+  `ssh root@<host> 'cat /etc/rancher/k3s/k3s.yaml'` straight in.
 
 Repo **Variables**:
 

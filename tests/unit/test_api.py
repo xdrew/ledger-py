@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from httpx2 import ASGITransport, AsyncClient
 
 from ledger.api.context import AppContext
-from ledger.api.idempotency import ClaimResult, IdempotencyStore
+from ledger.api.idempotency import ClaimResult, InMemoryIdempotencyStore
 from ledger.api.main import create_app
 from ledger.config.settings import get_settings
 from ledger.domain.shared.identifiers import new_account_id, new_journal_entry_id, new_transfer_id
@@ -52,7 +52,7 @@ def context() -> tuple[AppContext, FakeGateway]:
         store=store,
         repositories=build_repositories(store, registry),
         gateway=gateway,
-        idempotency=IdempotencyStore(),
+        idempotency=InMemoryIdempotencyStore(),
         read_models=build_read_models(store, registry),
     )
     return ctx, gateway
@@ -424,7 +424,7 @@ def _ctx_with(store: Any) -> AppContext:
         store=store,
         repositories=build_repositories(mem, registry),
         gateway=FakeGateway(),
-        idempotency=IdempotencyStore(),
+        idempotency=InMemoryIdempotencyStore(),
         read_models=build_read_models(mem, registry),
     )
 
@@ -461,28 +461,28 @@ class TestLifecycle:
 
 
 class TestIdempotencyStore:
-    def test_claim_lifecycle(self) -> None:
-        store = IdempotencyStore()
+    async def test_claim_lifecycle(self) -> None:
+        store = InMemoryIdempotencyStore()
 
-        result, response = store.claim("k", "route", "fp")
+        result, response = await store.claim("k", "route", "fp")
         assert result is ClaimResult.NEW and response is None
 
-        in_progress, _ = store.claim("k", "route", "fp")
+        in_progress, _ = await store.claim("k", "route", "fp")
         assert in_progress is ClaimResult.IN_PROGRESS
 
-        mismatch, _ = store.claim("k", "route", "different")
+        mismatch, _ = await store.claim("k", "route", "different")
         assert mismatch is ClaimResult.MISMATCH
 
-        store.complete("k", "route", 202, {"x": 1})
-        replay, stored = store.claim("k", "route", "fp")
+        await store.complete("k", "route", 202, {"x": 1})
+        replay, stored = await store.claim("k", "route", "fp")
         assert replay is ClaimResult.REPLAY
         assert stored is not None and stored.body == {"x": 1}
 
-    def test_discard_releases_reservation(self) -> None:
-        store = IdempotencyStore()
-        store.claim("k", "route", "fp")
-        store.discard("k", "route")
-        result, _ = store.claim("k", "route", "fp")
+    async def test_discard_releases_reservation(self) -> None:
+        store = InMemoryIdempotencyStore()
+        await store.claim("k", "route", "fp")
+        await store.discard("k", "route")
+        result, _ = await store.claim("k", "route", "fp")
         assert result is ClaimResult.NEW  # reservation was released, key reusable
 
 
@@ -508,7 +508,7 @@ class TestIdempotencyConcurrency:
             store=store,
             repositories=build_repositories(store, registry),
             gateway=BlockingGateway(),
-            idempotency=IdempotencyStore(),
+            idempotency=InMemoryIdempotencyStore(),
             read_models=build_read_models(store, registry),
         )
         app = create_app()

@@ -92,7 +92,7 @@ async def deposit(
     traceparent: Annotated[str | None, Header()] = None,
 ) -> AccountResponse | JSONResponse:
     if idempotency_key is not None:
-        result, stored = context.idempotency.claim(
+        result, stored = await context.idempotency.claim(
             idempotency_key, _DEPOSIT_ROUTE, _deposit_fingerprint(account_id, body)
         )
         match result:
@@ -119,12 +119,12 @@ async def deposit(
         )
     except Exception:
         if idempotency_key is not None:
-            context.idempotency.discard(idempotency_key, _DEPOSIT_ROUTE)
+            await context.idempotency.discard(idempotency_key, _DEPOSIT_ROUTE)
         raise
 
     response = _account_response(account_id, account)
     if idempotency_key is not None:
-        context.idempotency.complete(
+        await context.idempotency.complete(
             idempotency_key, _DEPOSIT_ROUTE, 200, response.model_dump(mode="json")
         )
     return response

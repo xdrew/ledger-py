@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Iterator
 import asyncpg
 import pytest
 
+from ledger.api.idempotency import ClaimResult, PostgresIdempotencyStore
 from ledger.domain.accounts.account import Account
 from ledger.domain.accounts.events import ACCOUNT_STREAM
 from ledger.domain.shared.events import DomainEvent
@@ -201,6 +202,30 @@ class TestPostgresEventStore:
             assert await checkpoints.load("relay-test") == 42
             await checkpoints.save("relay-test", 99)  # upsert advances
             assert await checkpoints.load("relay-test") == 99
+        finally:
+            await pool.close()
+
+    async def test_postgres_idempotency_store_classifies_claims(self, dsn: str) -> None:
+        pool = await asyncpg.create_pool(dsn)
+        try:
+            store = await PostgresIdempotencyStore.connect(pool)
+            first, _ = await store.claim("k1", "r", "fp")
+            assert first is ClaimResult.NEW  # atomic insert won
+            again, _ = await store.claim("k1", "r", "fp")
+            assert again is ClaimResult.IN_PROGRESS  # reserved, not yet completed
+            mismatch, _ = await store.claim("k1", "r", "other")
+            assert mismatch is ClaimResult.MISMATCH
+
+            await store.complete("k1", "r", 202, {"x": 1})
+            replay, stored = await store.claim("k1", "r", "fp")
+            assert replay is ClaimResult.REPLAY
+            assert stored is not None and stored.body == {"x": 1}
+
+            # discard releases an uncompleted reservation so the key is reusable.
+            await store.claim("k2", "r", "fp")
+            await store.discard("k2", "r")
+            reused, _ = await store.claim("k2", "r", "fp")
+            assert reused is ClaimResult.NEW
         finally:
             await pool.close()
 

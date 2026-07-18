@@ -72,6 +72,11 @@ class PostgresEventStore:
         self._pool = pool
         self._registry = registry
 
+    @property
+    def pool(self) -> asyncpg.Pool:
+        """The connection pool, shared with co-located stores (e.g. idempotency)."""
+        return self._pool
+
     @classmethod
     async def connect(
         cls,

@@ -5,9 +5,14 @@ from dataclasses import dataclass
 from fastapi import Request
 
 from ledger.api.gateway import TemporalTransferGateway, TransferGateway
-from ledger.api.idempotency import IdempotencyStore
+from ledger.api.idempotency import (
+    IdempotencyStore,
+    InMemoryIdempotencyStore,
+    PostgresIdempotencyStore,
+)
 from ledger.config.settings import Settings, get_settings
 from ledger.eventstore.factory import open_event_store
+from ledger.eventstore.postgres import PostgresEventStore
 from ledger.eventstore.registry import build_event_registry
 from ledger.eventstore.store import EventStore
 from ledger.projections.read_models_service import ReadModels, build_read_models
@@ -37,12 +42,16 @@ async def build_runtime_context(settings: Settings) -> AppContext:
     repositories = build_repositories(store, registry)
     client = await connect(settings)
     gateway = TemporalTransferGateway(client, settings.temporal_task_queue)
+    if isinstance(store, PostgresEventStore):
+        idempotency: IdempotencyStore = await PostgresIdempotencyStore.connect(store.pool)
+    else:
+        idempotency = InMemoryIdempotencyStore()
     return AppContext(
         settings=settings,
         store=store,
         repositories=repositories,
         gateway=gateway,
-        idempotency=IdempotencyStore(),
+        idempotency=idempotency,
         read_models=build_read_models(store, registry),
     )
 

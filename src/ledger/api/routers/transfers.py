@@ -74,7 +74,9 @@ async def create_transfer(
     if idempotency_key is not None:
         # Claim the key atomically *before* any work so concurrent duplicates
         # cannot each start a saga (claim() does no await — atomic under the loop).
-        result, stored = context.idempotency.claim(idempotency_key, _ROUTE, _fingerprint(body))
+        result, stored = await context.idempotency.claim(
+            idempotency_key, _ROUTE, _fingerprint(body)
+        )
         match result:
             case ClaimResult.REPLAY if stored is not None:
                 return JSONResponse(status_code=stored.status_code, content=stored.body)
@@ -104,12 +106,14 @@ async def create_transfer(
         )
     except Exception:
         if idempotency_key is not None:
-            context.idempotency.discard(idempotency_key, _ROUTE)
+            await context.idempotency.discard(idempotency_key, _ROUTE)
         raise
 
     accepted = TransferAccepted(transfer_id=transfer_id, status="initiated")
     if idempotency_key is not None:
-        context.idempotency.complete(idempotency_key, _ROUTE, 202, accepted.model_dump(mode="json"))
+        await context.idempotency.complete(
+            idempotency_key, _ROUTE, 202, accepted.model_dump(mode="json")
+        )
     return accepted
 
 

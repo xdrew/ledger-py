@@ -106,7 +106,7 @@ class TestAuth:
         response = client.get("/")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "ledger-core" in response.text
+        assert "ledger-py" in response.text
 
 
 class TestAccounts:

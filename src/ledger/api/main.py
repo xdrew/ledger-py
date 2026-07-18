@@ -9,7 +9,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from ledger.api.context import build_runtime_context
 from ledger.api.problem_details import install_problem_handlers
-from ledger.api.routers import accounts, transfers
+from ledger.api.routers import accounts, events, transfers
 from ledger.config.settings import Settings, get_settings
 from ledger.observability.setup import configure_observability
 from ledger.ops.router import router as ops_router
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     install_problem_handlers(app)
     app.include_router(accounts.router)
     app.include_router(transfers.router)
+    app.include_router(events.router)
     app.include_router(ops_router)
     app.include_router(showcase_router)
     _instrument(app, settings)

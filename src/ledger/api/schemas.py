@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,14 @@ class EventResponse(BaseModel):
     event_type: str
     occurred_at: datetime
     payload: dict[str, Any]
+
+
+class GlobalEventResponse(BaseModel):
+    global_position: int
+    stream_type: str
+    stream_id: UUID
+    event_type: str
+    occurred_at: datetime
 
 
 class CreateTransferRequest(BaseModel):

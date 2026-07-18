@@ -3,241 +3,263 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ledger-core · playground</title>
+    <title>ledger-core · live cockpit</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fed'/%3E%3Cg stroke='white' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M9 11h14M9 16h14M9 21h9'/%3E%3C/g%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2312171e'/%3E%3Cg stroke='%23c9a227' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M9 11h14M9 16h14M9 21h9'/%3E%3C/g%3E%3C/svg%3E"
     />
     <style>
       :root {
-        --bg: #f7f8fa;
-        --card: #ffffff;
-        --ink: #1c2530;
-        --muted: #667085;
-        --line: #e5e8ec;
-        --accent: #2f6fed;
-        --ok: #1f9d55;
-        --warn: #b7791f;
-        --err: #d64545;
-        --rail: #d7dce3;
-        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        --ink: #12171e;
+        --panel: #19212b;
+        --panel-2: #1f2934;
+        --line: #29343f;
+        --text: #e9eef3;
+        --muted: #8496a8;
+        --brass: #c9a227;
+        --brass-dim: #7a6620;
+        --green: #4fb286;
+        --red: #c0554d;
+        --amber: #d9a441;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        color: var(--ink);
-        background: var(--bg);
+        background:
+          radial-gradient(1100px 520px at 80% -10%, #1c2632 0%, transparent 62%),
+          var(--ink);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
       }
+      .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+      .eyebrow {
+        font-size: 10.5px; font-weight: 700; letter-spacing: .16em;
+        text-transform: uppercase; color: var(--muted);
+      }
+
+      /* ---- shell ---- */
+      .shell { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
+      .tape { border-right: 1px solid var(--line); background: #151c24; display: flex; flex-direction: column; min-height: 0; }
+      .stage { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+
+      /* ---- header ---- */
       header {
-        padding: 20px 24px;
-        border-bottom: 1px solid var(--line);
-        background: var(--card);
+        grid-column: 1 / -1;
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 22px; border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, #1a232e, #161d26);
       }
-      header h1 { margin: 0; font-size: 18px; }
-      header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-      main {
-        max-width: 960px;
-        margin: 24px auto;
-        padding: 0 16px;
-        display: grid;
-        gap: 16px;
-        grid-template-columns: 1fr 1fr;
+      .wordmark { font-weight: 800; letter-spacing: .22em; font-size: 15px; }
+      .wordmark b { color: var(--brass); font-weight: 800; }
+      .live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; }
+      .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(79,178,134,.6); animation: pulse 2.4s infinite; }
+      @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(79,178,134,.5);} 70% { box-shadow: 0 0 0 7px rgba(79,178,134,0);} 100% { box-shadow: 0 0 0 0 rgba(79,178,134,0);} }
+      header .tagline { color: var(--muted); font-size: 12px; }
+      header .spacer { flex: 1; }
+      header .key { display: flex; align-items: center; gap: 8px; }
+      header .key label { color: var(--muted); font-size: 11px; }
+      input {
+        background: #10161d; border: 1px solid var(--line); color: var(--text);
+        border-radius: 7px; padding: 7px 9px; font: inherit; font-family: var(--mono); font-size: 12.5px;
       }
-      .card {
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 16px;
+      input:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+      input.k { width: 132px; }
+
+      /* ---- event tape (the spine) ---- */
+      .tape-head { display: flex; align-items: baseline; justify-content: space-between; padding: 13px 16px 9px; border-bottom: 1px solid var(--line); }
+      .tape-head .count { color: var(--brass); font-size: 12px; }
+      .tape-rows { flex: 1; overflow-y: auto; min-height: 0; padding: 6px 0 40px; }
+      .tape-empty { color: var(--muted); font-size: 12.5px; padding: 18px 16px; line-height: 1.5; }
+      .ev {
+        display: grid; grid-template-columns: 52px 1fr auto; align-items: baseline; gap: 10px;
+        padding: 6px 16px; border-left: 2px solid transparent;
+        font-family: var(--mono); font-size: 12.5px;
       }
-      .card.wide { grid-column: 1 / -1; }
-      h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-      label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
-      input, select {
-        width: 100%;
-        padding: 8px 10px;
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        font: inherit;
-        background: #fff;
-        color: var(--ink);
+      .ev .pos { color: var(--brass); }
+      .ev .type { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ev .stream { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+      .ev.s-account .stream { color: var(--green); }
+      .ev.s-transfer .stream { color: var(--amber); }
+      .ev.s-journal .stream { color: var(--brass); }
+      .ev.flash { animation: flash 1.5s ease-out; }
+      @keyframes flash {
+        0% { border-left-color: var(--brass); background: rgba(201,162,39,.14); }
+        100% { border-left-color: transparent; background: transparent; }
       }
-      .row { display: flex; gap: 10px; }
-      .row > * { flex: 1; }
+
+      /* ---- stage sections ---- */
+      .controls { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+      .field { display: flex; flex-direction: column; gap: 5px; }
+      .field label { color: var(--muted); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; }
       button {
-        margin-top: 12px;
-        padding: 9px 14px;
-        border: 0;
-        border-radius: 7px;
-        background: var(--accent);
-        color: #fff;
-        font: inherit;
-        font-weight: 600;
-        cursor: pointer;
+        border: 1px solid var(--brass-dim); background: linear-gradient(180deg, #24303c, #1c2530);
+        color: var(--text); font: inherit; font-weight: 600; font-size: 13px;
+        padding: 8px 14px; border-radius: 8px; cursor: pointer;
       }
-      button.ghost { background: #eef2f9; color: var(--accent); }
+      button.primary { background: linear-gradient(180deg, #caa22b, #a9861d); color: #1a1405; border-color: #8a6d15; }
+      button.ghost { background: #1a232e; }
+      button:hover { filter: brightness(1.08); }
       button:active { transform: translateY(1px); }
-      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-      pre {
-        margin: 12px 0 0;
-        padding: 12px;
-        background: #0f172a;
-        color: #cbd5e1;
-        border-radius: 8px;
-        font-size: 12px;
-        overflow-x: auto;
-        max-height: 320px;
-      }
-      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-      .s-completed { background: #e3f5ea; color: var(--ok); }
-      .s-reconciled { background: #fdf1dd; color: var(--warn); }
-      .s-failed { background: #fbe6e6; color: var(--err); }
-      .s-needs_reconciliation { background: #fdf1dd; color: var(--warn); }
-      .s-initiated, .s-held, .s-posted { background: #e8eefc; color: var(--accent); }
-      .muted { color: var(--muted); font-size: 12px; }
-      code { background: #eef2f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-      .mono { font-family: var(--mono); font-size: 12px; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 
-      /* --- saga rail (the signature) --- */
-      .saga-head { display: flex; align-items: center; gap: 10px; min-height: 22px; }
-      .saga-head .mono { color: var(--muted); }
-      .saga-empty { color: var(--muted); font-size: 13px; }
+      .section { padding: 18px 22px; border-bottom: 1px solid var(--line); }
+      .section > .eyebrow { display: block; margin-bottom: 14px; }
 
-      .stepper { display: flex; margin: 22px 2px 4px; }
+      /* saga stage */
+      .saga-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+      .saga-id { color: var(--muted); font-size: 12px; }
+      .pill { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); }
+      .pill.completed { color: var(--green); border-color: #2f5a49; background: rgba(79,178,134,.08); }
+      .pill.reconciled, .pill.needs_reconciliation { color: var(--amber); border-color: #6a5320; background: rgba(217,164,65,.08); }
+      .pill.failed { color: var(--red); border-color: #6b3733; background: rgba(192,85,77,.08); }
+      .pill.initiated, .pill.held, .pill.posted { color: var(--amber); border-color: #5a4a22; }
+      .stepper { display: flex; }
       .step { flex: 1; position: relative; text-align: center; }
-      .step::before {
-        content: "";
-        position: absolute;
-        top: 9px;
-        right: 50%;
-        width: 100%;
-        height: 2px;
-        background: var(--rail);
-      }
+      .step::before { content: ""; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--line); }
       .step:first-child::before { display: none; }
-      .step.reached::before { background: var(--accent); }
-      .step.branch-warn.reached::before { background: var(--warn); }
-      .step.branch-err.reached::before { background: var(--err); }
-      .dot {
-        position: relative;
-        z-index: 1;
-        display: block;
-        width: 20px;
-        height: 20px;
-        margin: 0 auto 8px;
-        border-radius: 999px;
-        background: #fff;
-        border: 2px solid var(--rail);
-      }
-      .step.done .dot { background: var(--accent); border-color: var(--accent); }
-      .step.current .dot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(47,111,237,.16); }
-      .step.branch-warn .dot { background: var(--warn); border-color: var(--warn); }
-      .step.branch-warn.current .dot { box-shadow: 0 0 0 4px rgba(183,121,31,.18); }
-      .step.branch-err .dot { background: var(--err); border-color: var(--err); }
-      .lbl { font-size: 12px; color: var(--muted); }
-      .step.done .lbl, .step.current .lbl { color: var(--ink); font-weight: 600; }
-      .step.branch-warn .lbl { color: var(--warn); font-weight: 600; }
-      .step.branch-err .lbl { color: var(--err); font-weight: 600; }
-
-      /* --- resolve controls --- */
-      .resolve {
-        margin-top: 16px;
-        padding: 12px 14px;
-        border: 1px solid #f0dcb4;
-        background: #fdf6e8;
-        border-radius: 9px;
-      }
-      .resolve p { margin: 0 0 4px; font-size: 13px; color: #7c5a12; }
+      .step.reached::before { background: var(--green); }
+      .step.branch-warn.reached::before { background: var(--amber); }
+      .step.branch-err.reached::before { background: var(--red); }
+      .node { position: relative; z-index: 1; width: 22px; height: 22px; margin: 0 auto 9px; border-radius: 50%; background: var(--ink); border: 2px solid var(--line); }
+      .step.done .node { background: var(--green); border-color: var(--green); }
+      .step.current .node { border-color: var(--brass); box-shadow: 0 0 0 5px rgba(201,162,39,.16); animation: ring 1.6s infinite; }
+      @keyframes ring { 0%,100% { box-shadow: 0 0 0 4px rgba(201,162,39,.10);} 50% { box-shadow: 0 0 0 7px rgba(201,162,39,.22);} }
+      .step.branch-warn .node { background: var(--amber); border-color: var(--amber); }
+      .step.branch-err .node { background: var(--red); border-color: var(--red); }
+      .step .lbl { font-size: 11.5px; color: var(--muted); }
+      .step.done .lbl, .step.current .lbl { color: var(--text); font-weight: 600; }
+      .step.branch-warn .lbl { color: var(--amber); font-weight: 600; }
+      .step.branch-err .lbl { color: var(--red); font-weight: 600; }
+      .saga-empty { color: var(--muted); font-size: 13px; }
+      .resolve { margin-top: 18px; padding: 13px 15px; border: 1px solid #5a4a22; background: rgba(217,164,65,.06); border-radius: 10px; }
+      .resolve p { margin: 0 0 9px; color: #e4c37a; font-size: 12.5px; }
       .resolve .acts { display: flex; gap: 10px; }
-      .resolve .acts button { margin-top: 6px; }
 
-      /* --- event timeline --- */
-      .timeline { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
-      .timeline h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-      .ev { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; }
-      .ev::before { content: ""; flex: 0 0 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: var(--accent); }
-      .ev.warn::before { background: var(--warn); }
-      .ev.ok::before { background: var(--ok); }
-      .ev.err::before { background: var(--err); }
-      .ev .type { font-weight: 600; }
-      .ev .meta { margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+      /* accounts + read-side */
+      .cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0; }
+      .cols > .section:first-child { border-right: 1px solid var(--line); }
+      .acct { margin-bottom: 16px; }
+      .acct:last-child { margin-bottom: 0; }
+      .acct .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+      .acct .who { font-size: 12px; color: var(--muted); }
+      .acct .who b { color: var(--text); font-weight: 600; letter-spacing: .04em; }
+      .acct .total { font-size: 12.5px; }
+      .bar { height: 22px; border-radius: 6px; background: #10161d; border: 1px solid var(--line); overflow: hidden; display: flex; }
+      .bar .avail { background: linear-gradient(180deg, #57bd90, #3f9068); transition: width .5s ease; }
+      .bar .held { background: linear-gradient(180deg, #cf6a61, #a8453d); transition: width .5s ease; }
+      .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+      .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+      .legend .a i { background: var(--green); } .legend .h i { background: var(--red); }
+      .readside .metric { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }
+      .readside .metric:last-child { border-bottom: 0; }
+      .readside .k { color: var(--muted); font-size: 12px; }
+      .readside .v { font-family: var(--mono); font-size: 15px; color: var(--brass); }
+      .readside .note { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 12px; }
 
-      @media (max-width: 720px) {
-        main { grid-template-columns: 1fr; }
-        .lbl { font-size: 11px; }
+      @media (prefers-reduced-motion: reduce) {
+        .ev.flash, .step.current .node, .live .dot { animation: none; }
+      }
+      @media (max-width: 880px) {
+        .shell { grid-template-columns: 1fr; height: auto; }
+        .tape { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
+        .stage { overflow: visible; }
+        .cols { grid-template-columns: 1fr; }
+        .cols > .section:first-child { border-right: 0; }
       }
     </style>
   </head>
   <body>
-    <header>
-      <h1>ledger-core · playground</h1>
-      <p>Event-sourced ledger orchestrated with Temporal — drive the live API and watch the saga.</p>
-    </header>
-    <main>
-      <div class="card wide">
-        <h2>Connection</h2>
-        <label>API key (X-Api-Key)</label>
-        <input id="apiKey" value="dev-local-key" />
-        <p class="muted">Transfers start a Temporal workflow; the worker must be running.</p>
-      </div>
+    <div class="shell">
+      <header>
+        <span class="wordmark">LEDGER<b>·</b>CORE</span>
+        <span class="live"><span class="dot"></span> running</span>
+        <span class="tagline">every change is one immutable event in an ordered log</span>
+        <span class="spacer"></span>
+        <span class="key">
+          <label>api key</label>
+          <input class="k mono" id="apiKey" value="dev-local-key" />
+        </span>
+      </header>
 
-      <div class="card">
-        <h2>1 · Open account</h2>
-        <label>Currency</label>
-        <input id="currency" value="USD" />
-        <button onclick="openAccount()">Open account</button>
-        <button class="ghost" onclick="seedPair()">Quick: open source + dest</button>
-        <pre id="accountsOut">source: —\ndest:   —</pre>
-      </div>
-
-      <div class="card">
-        <h2>2 · Deposit</h2>
-        <label>Account id</label>
-        <input id="depositId" placeholder="account id" />
-        <div class="row">
-          <div><label>Amount (minor)</label><input id="depositAmt" value="1000" /></div>
-          <div><label>Currency</label><input id="depositCur" value="USD" /></div>
+      <!-- the spine: live append-only event log -->
+      <aside class="tape">
+        <div class="tape-head">
+          <span class="eyebrow">Event log · append-only</span>
+          <span class="count mono" id="logHead">#0</span>
         </div>
-        <button onclick="deposit()">Deposit</button>
-        <pre id="depositOut">—</pre>
-      </div>
-
-      <div class="card wide">
-        <h2>3 · Transfer (saga)</h2>
-        <div class="row">
-          <div><label>Source</label><input id="src" placeholder="source account id" /></div>
-          <div><label>Destination</label><input id="dst" placeholder="destination account id" /></div>
-        </div>
-        <div class="row">
-          <div><label>Amount (minor)</label><input id="amt" value="400" /></div>
-          <div><label>Currency</label><input id="cur" value="USD" /></div>
-        </div>
-        <button onclick="transfer()">Start transfer</button>
-      </div>
-
-      <div class="card wide">
-        <h2>Transfer saga</h2>
-        <div class="saga-head">
-          <span class="mono" id="sagaId"></span>
-          <span id="sagaPill"></span>
-        </div>
-        <div id="sagaBody">
-          <p class="saga-empty">Start a transfer above to watch it move through the saga.</p>
-        </div>
-        <div class="stepper" id="stepper" hidden></div>
-        <div class="resolve" id="resolve" hidden>
-          <p>Parked — the source was debited but the destination was never credited.</p>
-          <div class="acts">
-            <button onclick="resolve('refund_source')">Refund source</button>
-            <button class="ghost" onclick="resolve('retry_credit')">Retry credit</button>
+        <div class="tape-rows" id="tape">
+          <div class="tape-empty">
+            The global log is empty. Seed accounts and run a transfer — every state
+            change lands here as an ordered, immutable event.
           </div>
         </div>
-        <div class="timeline" id="timeline" hidden>
-          <h3>Event timeline</h3>
-          <div id="events"></div>
+      </aside>
+
+      <!-- the stage -->
+      <main class="stage">
+        <div class="controls">
+          <div class="field">
+            <label>currency</label>
+            <input class="mono" id="cur" value="USD" style="width:80px" />
+          </div>
+          <div class="field">
+            <label>fund source</label>
+            <input class="mono" id="fund" value="1000" style="width:96px" />
+          </div>
+          <button class="primary" id="seedBtn" onclick="seed()">Seed &amp; fund</button>
+          <div class="field">
+            <label>transfer amount</label>
+            <input class="mono" id="amt" value="400" style="width:96px" />
+          </div>
+          <button id="xferBtn" onclick="transfer()" disabled>Run transfer</button>
+          <button class="ghost" id="freezeBtn" onclick="freezeDest()" disabled>Freeze destination</button>
         </div>
-      </div>
-    </main>
+
+        <section class="section">
+          <span class="eyebrow">Transfer saga · durable, step by step (Temporal)</span>
+          <div id="sagaBody">
+            <p class="saga-empty">Run a transfer to watch the saga hold, post, and settle — each step appends its event to the log on the left.</p>
+          </div>
+          <div class="saga-head" id="sagaHead" hidden>
+            <span class="saga-id mono" id="sagaId"></span>
+            <span id="sagaPill"></span>
+          </div>
+          <div class="stepper" id="stepper" hidden></div>
+          <div class="resolve" id="resolve" hidden>
+            <p>Parked — the source was debited but the destination was never credited. Resolve it:</p>
+            <div class="acts">
+              <button class="primary" onclick="resolve('refund_source')">Refund source</button>
+              <button class="ghost" onclick="resolve('retry_credit')">Retry credit</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="cols">
+          <section class="section">
+            <span class="eyebrow">Accounts · available vs held</span>
+            <div id="accounts">
+              <p class="saga-empty">Balances appear once you seed accounts.</p>
+            </div>
+          </section>
+          <section class="section readside">
+            <span class="eyebrow">Read side · tails the same log</span>
+            <div class="metric"><span class="k">log head</span><span class="v mono" id="rsHead">#0</span></div>
+            <div class="metric"><span class="k">events seen</span><span class="v mono" id="rsCount">0</span></div>
+            <p class="note">
+              Balances are a projection rebuilt from the log; the outbox relay tails the
+              same positions to publish events downstream. Both derive from the one
+              ordered source of truth on the left.
+            </p>
+          </section>
+        </div>
+      </main>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
@@ -245,72 +267,90 @@
 
       async function api(method, path, body) {
         const res = await fetch(path, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
-        const text = await res.text();
-        let data;
-        try { data = JSON.parse(text); } catch { data = text; }
+        let data = null;
+        try { data = await res.json(); } catch {}
         return { ok: res.ok, status: res.status, data };
       }
 
-      async function openAccount() {
-        const r = await api("POST", "/api/accounts", { currency: $("currency").value });
-        $("accountsOut").textContent = JSON.stringify(r.data, null, 2);
-        return r.data.account_id;
+      const state = { src: null, dst: null, cur: "USD", transfer: null, timer: null };
+
+      // ---- live event log (the spine) ----
+      let cursor = 0;
+      let seen = 0;
+      const KNOWN = new Set();
+      function streamClass(t) {
+        if (t === "account") return "s-account";
+        if (t === "transfer") return "s-transfer";
+        if (t === "journal") return "s-journal";
+        return "";
+      }
+      async function pollLog() {
+        const r = await api("GET", `/api/events?from_position=${cursor}&limit=200`);
+        if (r.ok && Array.isArray(r.data) && r.data.length) {
+          const tape = $("tape");
+          if (KNOWN.size === 0) tape.innerHTML = "";
+          for (const e of r.data) {
+            if (KNOWN.has(e.global_position)) continue;
+            KNOWN.add(e.global_position);
+            cursor = Math.max(cursor, e.global_position);
+            seen += 1;
+            const row = document.createElement("div");
+            row.className = `ev flash ${streamClass(e.stream_type)}`;
+            row.innerHTML =
+              `<span class="pos">#${e.global_position}</span>` +
+              `<span class="type">${e.event_type}</span>` +
+              `<span class="stream">${e.stream_type}</span>`;
+            tape.insertBefore(row, tape.firstChild);
+          }
+          while (tape.children.length > 80) tape.removeChild(tape.lastChild);
+          $("logHead").textContent = `#${cursor}`;
+          $("rsHead").textContent = `#${cursor}`;
+          $("rsCount").textContent = String(seen);
+        }
+        setTimeout(pollLog, 650);
       }
 
-      async function seedPair() {
-        const cur = $("currency").value;
-        const src = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
-        await api("POST", `/api/accounts/${src}/deposit`, { amount: 1000, currency: cur });
-        const dst = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
-        $("src").value = src; $("dst").value = dst;
-        $("depositId").value = src;
-        $("accountsOut").textContent = `source: ${src}  (deposited 1000)\ndest:   ${dst}`;
+      // ---- controls ----
+      async function seed() {
+        $("seedBtn").disabled = true;
+        state.cur = $("cur").value;
+        const src = (await api("POST", "/api/accounts", { currency: state.cur })).data.account_id;
+        await api("POST", `/api/accounts/${src}/deposit`, { amount: Number($("fund").value), currency: state.cur });
+        const dst = (await api("POST", "/api/accounts", { currency: state.cur })).data.account_id;
+        state.src = src; state.dst = dst;
+        $("xferBtn").disabled = false;
+        $("freezeBtn").disabled = false;
+        $("seedBtn").disabled = false;
+        renderAccounts();
       }
-
-      async function deposit() {
-        const id = $("depositId").value;
-        const r = await api("POST", `/api/accounts/${id}/deposit`, {
-          amount: Number($("depositAmt").value), currency: $("depositCur").value,
-        });
-        $("depositOut").textContent = JSON.stringify(r.data, null, 2);
-      }
-
-      // --- saga rendering ---------------------------------------------------
-
-      let current = null; // { id, timer }
 
       async function transfer() {
+        if (!state.src) return;
         const r = await api("POST", "/api/transfers", {
-          source_account_id: $("src").value,
-          destination_account_id: $("dst").value,
+          source_account_id: state.src,
+          destination_account_id: state.dst,
           amount: Number($("amt").value),
-          currency: $("cur").value,
+          currency: state.cur,
         });
-        const id = r.data.transfer_id;
-        if (!id) {
-          $("sagaBody").innerHTML = `<p class="saga-empty">Could not start: ${escapeHtml(JSON.stringify(r.data))}</p>`;
-          return;
-        }
-        startWatching(id);
+        if (!r.ok || !r.data.transfer_id) return;
+        watch(r.data.transfer_id);
+      }
+
+      async function freezeDest() {
+        if (!state.dst) return;
+        await api("POST", `/api/accounts/${state.dst}/freeze`);
+        $("freezeBtn").disabled = true;
+        $("freezeBtn").textContent = "Destination frozen";
       }
 
       async function resolve(decision) {
-        if (!current) return;
-        await api("POST", `/api/transfers/${current.id}/resolve`, { resolution: decision });
-        startWatching(current.id); // resume fast polling to show the resulting transition
+        if (!state.transfer) return;
+        await api("POST", `/api/transfers/${state.transfer}/resolve`, { resolution: decision });
+        watch(state.transfer);
       }
 
-      function startWatching(id) {
-        if (current && current.timer) clearTimeout(current.timer);
-        current = { id, timer: null, tries: 0 };
-        $("sagaBody").innerHTML = "";
-        $("sagaId").textContent = id;
-        poll();
-      }
-
+      // ---- saga stage ----
       const TERMINAL = ["completed", "failed", "reconciled"];
-
-      // Milestone events, in lifecycle order, and how each maps onto the rail.
       const OUTCOMES = {
         TransferCompleted: { label: "Completed", cls: "done" },
         TransferReconciled: { label: "Reconciled", cls: "branch-warn done" },
@@ -318,84 +358,85 @@
         TransferFailed: { label: "Failed", cls: "branch-err done" },
       };
 
-      async function poll() {
-        if (!current) return;
+      function watch(id) {
+        if (state.timer) clearTimeout(state.timer);
+        state.transfer = id;
+        $("sagaBody").innerHTML = "";
+        $("sagaHead").hidden = false;
+        $("stepper").hidden = false;
+        $("sagaId").textContent = id;
+        pollSaga(0);
+      }
+
+      async function pollSaga(tries) {
+        if (!state.transfer) return;
         const [status, events] = await Promise.all([
-          api("GET", `/api/transfers/${current.id}`),
-          api("GET", `/api/transfers/${current.id}/events`),
+          api("GET", `/api/transfers/${state.transfer}`),
+          api("GET", `/api/transfers/${state.transfer}/events`),
         ]);
         const st = status.ok ? status.data.status : null;
         const evs = Array.isArray(events.data) ? events.data : [];
-
-        if (st) renderPill(st);
+        if (st) $("sagaPill").innerHTML = `<span class="pill ${st}">${st.replace(/_/g, " ")}</span>`;
         renderStepper(evs);
-        renderTimeline(evs);
         $("resolve").hidden = st !== "needs_reconciliation";
+        renderAccounts();
 
-        current.tries += 1;
-        if (st && TERMINAL.includes(st)) return; // done
-        // needs_reconciliation waits on an operator — keep the view live but gentle.
-        const delay = st === "needs_reconciliation" ? 1500 : 300;
-        const cap = st === "needs_reconciliation" ? 400 : 60;
-        if (current.tries < cap) current.timer = setTimeout(poll, delay);
-      }
-
-      function renderPill(st) {
-        $("sagaPill").innerHTML = `<span class="pill s-${st}">${st.replace(/_/g, " ")}</span>`;
+        if (st && TERMINAL.includes(st)) return;
+        const delay = st === "needs_reconciliation" ? 1500 : 350;
+        const cap = st === "needs_reconciliation" ? 400 : 80;
+        if (tries < cap) state.timer = setTimeout(() => pollSaga(tries + 1), delay);
       }
 
       function renderStepper(events) {
         const types = new Set(events.map((e) => e.event_type));
-        const stepper = $("stepper");
-        stepper.hidden = false;
-
-        const outcomeType = ["TransferCompleted", "TransferReconciled", "TransferParkedForReconciliation", "TransferFailed"]
-          .find((t) => types.has(t));
+        const outcomeType = ["TransferCompleted", "TransferReconciled", "TransferParkedForReconciliation", "TransferFailed"].find((t) => types.has(t));
         const outcome = outcomeType ? OUTCOMES[outcomeType] : { label: "Completed", cls: "pending" };
-
         const rail = [
           { label: "Initiated", done: types.has("TransferInitiated") },
           { label: "Held", done: types.has("TransferHeld") },
           { label: "Posted", done: types.has("TransferPosted") },
         ];
-        // The current in-progress node is the first not-yet-done leg (if no terminal outcome).
-        let currentIdx = outcomeType ? -1 : rail.findIndex((s) => !s.done);
-
+        const currentIdx = outcomeType ? -1 : rail.findIndex((s) => !s.done);
         let html = "";
         rail.forEach((s, i) => {
           const cls = [s.done ? "done reached" : "pending", i === currentIdx ? "current reached" : ""].join(" ");
           html += node(cls, s.label);
         });
         html += node(outcome.cls + " reached", outcome.label);
-        stepper.innerHTML = html;
+        $("stepper").innerHTML = html;
       }
-
       function node(cls, label) {
-        return `<div class="step ${cls}"><span class="dot"></span><span class="lbl">${label}</span></div>`;
+        return `<div class="step ${cls}"><span class="node"></span><span class="lbl">${label}</span></div>`;
       }
 
-      const EV_TONE = {
-        TransferCompleted: "ok",
-        TransferReconciled: "warn",
-        TransferParkedForReconciliation: "warn",
-        TransferFailed: "err",
-      };
-
-      function renderTimeline(events) {
-        $("timeline").hidden = events.length === 0;
-        $("events").innerHTML = events
-          .map((e) => {
-            const tone = EV_TONE[e.event_type] || "";
-            const t = new Date(e.occurred_at).toLocaleTimeString();
-            return `<div class="ev ${tone}"><span class="type">${e.event_type}</span>` +
-              `<span class="meta">v${e.version} · pos ${e.global_position} · ${t}</span></div>`;
-          })
-          .join("");
+      // ---- accounts ----
+      async function renderAccounts() {
+        if (!state.src) return;
+        const [s, d] = await Promise.all([
+          api("GET", `/api/accounts/${state.src}/balance`),
+          api("GET", `/api/accounts/${state.dst}/balance`),
+        ]);
+        const box = $("accounts");
+        box.innerHTML = "";
+        box.appendChild(acctEl("Source", state.src, s.ok ? s.data : null));
+        box.appendChild(acctEl("Destination", state.dst, d.ok ? d.data : null));
+      }
+      function acctEl(who, id, bal) {
+        const el = document.createElement("div");
+        el.className = "acct";
+        const avail = bal ? bal.available : 0;
+        const held = bal ? bal.reserved : 0;
+        const total = Math.max(avail + held, 1);
+        el.innerHTML =
+          `<div class="top"><span class="who"><b>${who}</b> · <span class="mono">${id.slice(0, 8)}</span></span>` +
+          `<span class="total mono">${avail + held} ${state.cur}</span></div>` +
+          `<div class="bar"><div class="avail" style="width:${(avail / total) * 100}%"></div>` +
+          `<div class="held" style="width:${(held / total) * 100}%"></div></div>` +
+          `<div class="legend"><span class="a"><i></i>available ${avail}</span><span class="h"><i></i>held ${held}</span></div>`;
+        return el;
       }
 
-      function escapeHtml(s) {
-        return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-      }
+      pollLog();
     </script>
   </body>
 </html>

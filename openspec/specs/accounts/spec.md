@@ -6,9 +6,7 @@ The account lifecycle aggregate: an event-sourced balance with two buckets —
 `available` (spendable) and `reserved` (held pending settlement). It enforces the
 money invariants (positive amounts, currency match, non-negative available, valid
 state) and makes balance-moving operations idempotent under saga retries.
-
 ## Requirements
-
 ### Requirement: Open an account
 
 The system SHALL open an account in a single currency with zero available and zero
@@ -154,3 +152,32 @@ aggregate.
 
 - **WHEN** an account is opened, deposited into, and held against, then saved and reloaded
 - **THEN** the reloaded account has the same available, reserved, status, and version
+
+### Requirement: Freeze and close are available through the API
+
+The API SHALL expose operations to freeze and to close an account. Freezing an
+open account SHALL transition it to frozen; closing an empty account SHALL
+transition it to closed. An invalid transition (freezing a non-open account) SHALL
+be rejected with `409`, and closing a non-empty account SHALL be rejected with
+`409`.
+
+#### Scenario: Freeze an open account via the API
+
+- **WHEN** an open account is frozen through the API
+- **THEN** the account becomes frozen
+
+#### Scenario: Freezing a frozen account is rejected
+
+- **WHEN** a freeze is requested for an account that is not open
+- **THEN** the request is rejected with `409`
+
+#### Scenario: Close an empty account via the API
+
+- **WHEN** an empty account is closed through the API
+- **THEN** the account becomes closed
+
+#### Scenario: Closing a non-empty account is rejected
+
+- **WHEN** a close is requested for an account holding a non-zero balance
+- **THEN** the request is rejected with `409`
+

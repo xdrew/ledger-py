@@ -90,6 +90,34 @@ async def get_account(account_id: AccountId, context: Context) -> AccountRespons
     return _account_response(account_id, account)
 
 
+@router.post("/{account_id}/freeze")
+async def freeze_account(
+    account_id: AccountId,
+    context: Context,
+    traceparent: Annotated[str | None, Header()] = None,
+) -> AccountResponse:
+    account = await _load_or_404(context, account_id)
+    account.freeze()
+    await context.repositories.accounts.save(
+        account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
+    )
+    return _account_response(account_id, account)
+
+
+@router.post("/{account_id}/close")
+async def close_account(
+    account_id: AccountId,
+    context: Context,
+    traceparent: Annotated[str | None, Header()] = None,
+) -> AccountResponse:
+    account = await _load_or_404(context, account_id)
+    account.close()
+    await context.repositories.accounts.save(
+        account_id, account, EventMetadata(correlation_id=account_id, traceparent=traceparent)
+    )
+    return _account_response(account_id, account)
+
+
 @router.get("/{account_id}/balance")
 async def get_balance(account_id: AccountId, context: Context) -> AccountResponse:
     """Balance served from the projection read model (catches up on read)."""

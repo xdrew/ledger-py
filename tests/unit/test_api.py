@@ -155,6 +155,39 @@ class TestAccounts:
         response = client.get(f"/api/accounts/{new_transfer_id()}/balance", headers=HEADERS)
         assert response.status_code == 404
 
+    def test_freeze_and_close_lifecycle(self, client: TestClient) -> None:
+        account_id = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        frozen = client.post(f"/api/accounts/{account_id}/freeze", headers=HEADERS)
+        assert frozen.status_code == 200
+        assert frozen.json()["status"] == "frozen"
+
+        # Freezing again is an invalid transition.
+        again = client.post(f"/api/accounts/{account_id}/freeze", headers=HEADERS)
+        assert again.status_code == 409
+        assert again.json()["code"] == "invalid_transition"
+
+    def test_close_empty_and_reject_funded(self, client: TestClient) -> None:
+        empty = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        closed = client.post(f"/api/accounts/{empty}/close", headers=HEADERS)
+        assert closed.status_code == 200
+        assert closed.json()["status"] == "closed"
+
+        funded = client.post("/api/accounts", json={"currency": "USD"}, headers=HEADERS).json()[
+            "account_id"
+        ]
+        client.post(
+            f"/api/accounts/{funded}/deposit",
+            json={"amount": 100, "currency": "USD"},
+            headers=HEADERS,
+        )
+        rejected = client.post(f"/api/accounts/{funded}/close", headers=HEADERS)
+        assert rejected.status_code == 409
+        assert rejected.json()["code"] == "account_not_empty"
+
     def test_concurrency_conflict_is_409_problem_json(
         self,
         client: TestClient,

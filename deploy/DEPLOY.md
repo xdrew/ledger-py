@@ -1,8 +1,9 @@
 # Deploy
 
-CD mirrors the sibling `ledger` project: a green `main` builds the image to GHCR,
-then rolls it onto the server's Kubernetes via the Helm chart over an SSH
-forced-command, verified by `https://ledger-py.avelent.work/readyz`.
+A green `main` builds the image to GHCR, then **the Action itself** upgrades the
+k3s release with the Helm chart from this checkout — `helm` runs on the runner and
+talks to the cluster through an SSH tunnel to the API server. Nothing about this
+repo lives on the server; there is no server-side clone or deploy script.
 
 Pipeline (`.github/workflows/ci.yml`):
 
@@ -16,62 +17,62 @@ chart ──────────┼─ deploy   (main only)
 - **chart** — `helm lint` + `helm template deploy/helm/ledger-py`.
 - **build** — builds `Dockerfile`; on `main` pushes `ghcr.io/xdrew/ledger-py` (tags
   `latest` + `sha-<sha>`).
-- **deploy** — SSHes to the server and runs `ledger-py-deploy sha-<GITHUB_SHA>`,
-  then checks the public `/readyz`.
+- **deploy** — opens an SSH tunnel to the cluster API and runs
+  `helm upgrade --install ledger-py deploy/helm/ledger-py --reuse-values --set image.tag=sha-<sha>`
+  from the runner, then checks the public `/readyz`. `--reuse-values` keeps the
+  release's install-time config (database URL, api key, Temporal address, service
+  type); only the image tag moves.
 
 ## GitHub configuration
 
 Repo **Secrets**:
 
-- `DEPLOY_SSH_KEY` — private key whose public key is authorized on the server
-  (restricted to the forced command below).
+- `DEPLOY_SSH_KEY` — private key whose public key is authorized on the server,
+  restricted to forwarding `127.0.0.1:6443` only (see below).
+- `KUBECONFIG_B64` — base64 of the k3s kubeconfig (its `server:` is already
+  `https://127.0.0.1:6443`, which the tunnel points at).
 
 Repo **Variables**:
 
 - `DEPLOY_HOST` — server address (e.g. `46.62.174.208`).
-- `DEPLOY_USER` — SSH user (e.g. `deploy` or `root`).
+- `DEPLOY_USER` — SSH user (e.g. `root`).
 
-The image pushes with the built-in `GITHUB_TOKEN` (`packages: write`); no extra
-registry secret is needed in CI.
+The image pushes with the built-in `GITHUB_TOKEN` (`packages: write`); the GHCR
+package is public, so the cluster needs no pull secret.
 
-## Server prerequisites (one-time, out of this repo)
+## Server prerequisites (one-time provisioning, out of this repo)
 
-1. **Kubernetes** on the box (e.g. k3s) with an ingress controller and cert-manager
-   for TLS on `ledger-py.avelent.work`.
-2. **Postgres + Temporal** reachable in-cluster; set their addresses in the chart
-   values / release secret (`LEDGER_DATABASE_URL`, `LEDGER_TEMPORAL_ADDRESS`).
-3. **GHCR pull secret** if the image is private:
+This is infrastructure, done once — not part of any deploy:
+
+1. **k3s** on the box.
+2. **Postgres** reachable in-cluster with a dedicated `ledgerpy` database, and a
+   **Temporal** frontend at `temporal:7233` (e.g. `temporalio/auto-setup` pointed at
+   the same Postgres). Their addresses are baked into the release at install time via
+   `--set secret.databaseUrl=... --set config.temporalAddress=...`.
+3. **Initial install** (sets the values `--reuse-values` then carries forward):
    ```
-   kubectl -n ledger-py create secret docker-registry ghcr \
-     --docker-server=ghcr.io --docker-username=xdrew --docker-password=<PAT-with-read:packages>
-   ```
-   and set `imagePullSecrets: [{ name: ghcr }]` in values.
-4. **The `ledger-py-deploy` forced command** — a script on the server that takes the
-   image tag, pulls the chart from this repo, and upgrades the release:
-   ```sh
-   #!/usr/bin/env bash
-   # /usr/local/bin/ledger-py-deploy  — arg: sha-<gitsha>
-   set -euo pipefail
-   tag="${SSH_ORIGINAL_COMMAND##* }"; tag="${tag:-latest}"
-   cd /opt/ledger-py && git fetch --all && git reset --hard origin/main
    helm upgrade --install ledger-py deploy/helm/ledger-py \
-     --namespace ledger-py --create-namespace \
-     --set image.tag="$tag" \
-     --set secret.apiKey="$(cat /etc/ledger-py/api-key)" \
-     --set secret.databaseUrl="$(cat /etc/ledger-py/database-url)" \
-     --wait --timeout 5m
+     --set image.repository=ghcr.io/xdrew/ledger-py --set image.tag=latest \
+     --set ingress.enabled=false --set service.type=NodePort \
+     --set 'secret.databaseUrl=postgresql://ledger:ledger@postgres:5432/ledgerpy' \
+     --set 'secret.apiKey=<key>' \
+     --set 'config.temporalAddress=temporal:7233' \
+     --wait
    ```
-   Restrict the deploy key in `~/.ssh/authorized_keys` to it:
+4. **Reverse proxy + TLS** — the box fronts services with nginx; add a vhost for
+   `ledger-py.avelent.work` that proxies to the api Service's NodePort, with a
+   Let's Encrypt cert. (No k8s ingress controller here.)
+5. **Deploy key** in the deploy user's `~/.ssh/authorized_keys`, locked to opening
+   the API tunnel and nothing else — no shell, no other ports:
    ```
-   command="/usr/local/bin/ledger-py-deploy",no-port-forwarding,no-pty ssh-ed25519 AAAA... deploy@ci
+   restrict,port-forwarding,permitopen="127.0.0.1:6443" ssh-ed25519 AAAA... deploy@ledger-py-ci
    ```
-5. **DNS** `ledger-py.avelent.work` → the ingress.
+6. **DNS** `ledger-py.avelent.work` → the box.
 
 ## Manual deploy
 
 ```
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 helm upgrade --install ledger-py deploy/helm/ledger-py \
-  --namespace ledger-py --create-namespace \
-  --set image.tag=sha-<sha> \
-  --set secret.apiKey=<key> --set secret.databaseUrl=<url> --wait
+  --reuse-values --set image.tag=sha-<sha> --wait
 ```

@@ -114,9 +114,10 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    # main only: roll the freshly-built image onto the server's Kubernetes via a
-    # forced-command over SSH (the server pulls the chart from the repo and the
-    # image from GHCR), then verify the public readiness endpoint.
+    # main only: deploy from the runner. helm upgrades the k3s release over an SSH
+    # tunnel to the cluster API — the chart comes from this checkout, the image
+    # from GHCR. No repo or deploy script lives on the server; the deploy key is
+    # restricted to forwarding only 127.0.0.1:6443 (no shell).
     needs: [gate, mutation, chart, build]
     # Skips (not fails) until the server address is configured as a repo variable.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_HOST != ''
@@ -128,9 +129,13 @@ jobs:
       name: production
       url: https://ledger-py.avelent.work
     steps:
-      - name: Deploy over SSH
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Deploy over an SSH tunnel to the cluster
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
         run: |
@@ -138,7 +143,16 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${DEPLOY_USER}@${DEPLOY_HOST}" "ledger-py-deploy sha-${GITHUB_SHA}"
+          printf '%s' "$KUBECONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          # Tunnel the k3s API; the key may only forward this one port.
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes \
+            -f -N -L 6443:127.0.0.1:6443 "${DEPLOY_USER}@${DEPLOY_HOST}"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          helm upgrade --install ledger-py deploy/helm/ledger-py \
+            --reuse-values \
+            --set image.repository=ghcr.io/xdrew/ledger-py \
+            --set image.tag="sha-${GITHUB_SHA}" \
+            --wait --timeout 5m
 
       - name: Production is serving the new revision
         run: |

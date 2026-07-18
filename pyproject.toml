@@ -101,5 +101,10 @@ exclude_also = [
 
 # mutmut — mutation testing (the Infection analogue). Run on demand: `just mutation`.
 [tool.mutmut]
-paths_to_mutate = ["src/ledger/domain/"]
-tests_dir = ["tests/unit/"]
+# Mutation testing of the domain (correctness core), run offline on demand.
+# NOTE: mutmut 3.x drives a coverage-selected test subset against a mutants/ copy;
+# with this src-layout it needs a non-editable install + a fresh coverage map to
+# apply mutations. Tracked as a follow-up; test strength today is evidenced by
+# branch coverage and the hypothesis property tests (test_property_*).
+source_paths = ["src/ledger/domain"]
+pytest_add_cli_args_test_selection = ["tests/unit"]

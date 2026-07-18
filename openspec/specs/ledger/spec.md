@@ -6,9 +6,7 @@ The immutable double-entry journal. A journal entry is a balanced set of debit/c
 legs, posted once as a `JournalEntryPosted` event. The posting service validates the
 referenced accounts (existence, status, currency) before an entry is built. The ledger
 is the accounting record complementary to the account balance events.
-
 ## Requirements
-
 ### Requirement: Post a balanced double-entry journal entry
 
 The ledger SHALL post a journal entry of legs, where each leg debits or credits a
@@ -46,12 +44,20 @@ or only credit legs, recording no event.
 ### Requirement: Entries must balance per currency
 
 The ledger SHALL reject a journal entry whose debit and credit totals are not equal for
-some currency, recording no event.
+some currency, recording no event. This holds for any set of legs: a set whose
+per-currency debit and credit totals are equal SHALL be accepted, and any set with a
+per-currency imbalance SHALL be rejected.
 
 #### Scenario: Unbalanced entry is rejected
 
 - **WHEN** an entry debits `100 USD` on A and credits `90 USD` on B
 - **THEN** the posting fails with an unbalanced error and no event is recorded
+
+#### Scenario: Any balanced leg set is accepted and any imbalance rejected
+
+- **WHEN** an arbitrary set of legs whose per-currency debit and credit totals are equal is posted
+- **THEN** the entry is accepted
+- **AND** perturbing any single leg amount so the totals no longer match causes the posting to be rejected with no event recorded
 
 ### Requirement: Leg amounts must be positive
 
@@ -115,3 +121,4 @@ debits-minus-credits net SHALL be consistent with those entries.
 - **WHEN** any number of individually balanced entries are posted
 - **THEN** summing all legs yields, for each currency, total debits equal to total credits
 - **AND** each account's debits-minus-credits net is consistent with those entries
+

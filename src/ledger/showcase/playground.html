@@ -149,6 +149,20 @@
       .readside .v { font-family: var(--mono); font-size: 15px; color: var(--brass); font-weight: 600; }
       .readside .note { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 12px; }
 
+      /* concurrency / double-spend */
+      .ds-intro { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; max-width: 680px; line-height: 1.55; }
+      .ds-run { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+      .ds-lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ds-lane { border: 1px solid var(--line-2); border-radius: 10px; padding: 13px 15px; background: var(--card); }
+      .ds-lane.completed { border-color: #bfe0cf; background: #f4fbf7; }
+      .ds-lane.failed { border-color: #eec7c3; background: #fdf4f2; }
+      .ds-lane-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .ds-lane-label { font-weight: 600; font-size: 13px; }
+      .ds-reason { margin-top: 9px; font-size: 12px; color: var(--red); }
+      .ds-verdict { margin-top: 14px; padding: 12px 15px; border-radius: 10px; font-size: 13px; line-height: 1.5; border: 1px solid var(--line-2); }
+      .ds-verdict.ok { border-color: #bfe0cf; background: #f4fbf7; color: #1f6b47; }
+      .ds-verdict.warn { border-color: #eec7c3; background: #fdf4f2; color: var(--red); }
+
       @media (prefers-reduced-motion: reduce) { .ev.flash, .step.current .node, .live .dot { animation: none; } .bar .avail, .bar .held { transition: none; } }
       @media (max-width: 880px) {
         .shell { grid-template-columns: 1fr; height: auto; }
@@ -204,6 +218,17 @@
             <p>Parked — the source was debited but the destination was never credited. Resolve it:</p>
             <div class="acts"><button class="primary" onclick="resolve('refund_source')">Refund source</button><button onclick="resolve('retry_credit')">Retry credit</button></div>
           </div>
+        </section>
+
+        <section class="section">
+          <span class="eyebrow">Concurrency · double-spend test</span>
+          <p class="ds-intro">Fund a source for exactly one payment, then fire two transfers at the same instant. Optimistic concurrency on the event log lets one settle and rejects the other for insufficient funds — the source is debited once, never twice.</p>
+          <div class="ds-run">
+            <div class="field"><label>payment amount</label><input class="mono" id="dsAmt" value="100" style="width:96px" /></div>
+            <button class="primary" id="dsBtn" onclick="doubleSpend()">Fire two at once</button>
+          </div>
+          <div class="ds-lanes" id="dsLanes" hidden></div>
+          <div class="ds-verdict" id="dsVerdict" hidden></div>
         </section>
 
         <div class="cols">
@@ -415,6 +440,55 @@
           `<div class="bar"><div class="avail" style="width:${(avail / scale) * 100}%"></div><div class="held" style="width:${(held / scale) * 100}%"></div></div>` +
           `<div class="legend"><span class="a"><i></i>available ${avail}</span><span class="h"><i></i>held ${held}</span></div>`;
         return el;
+      }
+
+      // ---- concurrency: double-spend ----
+      const TERMINAL_SET = ["completed", "failed", "reconciled"];
+      async function pollTerminal(id) {
+        for (let i = 0; i < 80; i++) {
+          const r = await api("GET", `/api/transfers/${id}`);
+          if (r.ok && TERMINAL_SET.includes(r.data.status)) {
+            return { status: r.data.status, reason: r.data.failure_reason || "" };
+          }
+          await new Promise((res) => setTimeout(res, 250));
+        }
+        return { status: "unknown", reason: "timeout" };
+      }
+      function laneEl(label, o) {
+        const cls = o.status === "completed" ? "completed" : o.status === "failed" ? "failed" : "pending";
+        const text = o.status === "pending" ? o.reason : o.status.replace(/_/g, " ");
+        const reason = o.status === "failed" && o.reason ? `<div class="ds-reason mono">rejected · ${o.reason}</div>` : "";
+        return `<div class="ds-lane ${cls}"><div class="ds-lane-head"><span class="ds-lane-label">Payment ${label}</span><span class="pill ${cls}">${text}</span></div>${reason}</div>`;
+      }
+      async function doubleSpend() {
+        const btn = $("dsBtn"); btn.disabled = true;
+        const amt = Number($("dsAmt").value) || 100;
+        const cur = $("cur").value || "USD";
+        const lanes = $("dsLanes"), verdict = $("dsVerdict");
+        lanes.hidden = false; verdict.hidden = true;
+        const pending = { status: "pending", reason: "in flight…" };
+        lanes.innerHTML = laneEl("A", pending) + laneEl("B", pending);
+
+        // A source funded for exactly one payment; both transfers target it at once.
+        const src = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
+        await api("POST", `/api/accounts/${src}/deposit`, { amount: amt, currency: cur });
+        const dst = (await api("POST", "/api/accounts", { currency: cur })).data.account_id;
+        const body = { source_account_id: src, destination_account_id: dst, amount: amt, currency: cur };
+        const [ra, rb] = await Promise.all([api("POST", "/api/transfers", body), api("POST", "/api/transfers", body)]);
+        const [oa, ob] = await Promise.all([pollTerminal(ra.data.transfer_id), pollTerminal(rb.data.transfer_id)]);
+        lanes.innerHTML = laneEl("A", oa) + laneEl("B", ob);
+
+        const settled = [oa, ob].filter((o) => o.status === "completed").length;
+        const rejected = [oa, ob].filter((o) => o.status === "failed").length;
+        const sb = await bal(src);
+        const remaining = sb ? sb.available + sb.reserved : 0;
+        const ok = settled === 1 && rejected === 1;
+        verdict.hidden = false;
+        verdict.className = "ds-verdict " + (ok ? "ok" : "warn");
+        verdict.innerHTML = ok
+          ? `<b>Exactly one payment settled.</b> The event log's optimistic concurrency rejected the double-spend — the source was debited once (${amt} out), remaining balance ${remaining} ${cur}.`
+          : `Unexpected outcome: ${settled} settled, ${rejected} rejected. (Both should not settle.)`;
+        btn.disabled = false;
       }
 
       pollLog();
